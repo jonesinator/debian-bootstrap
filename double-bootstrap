@@ -1,0 +1,112 @@
+#!/bin/sh
+# Runs debootstrap and our local ./bootstrap script and compares the results.
+# They should be identical unless you were very unlucky and the package mirror
+# saw an update in between, or some new source of non-reproducibility has popped
+# up.
+set -eu
+
+# Removes unneeded files from the rootfs. They are removed primarily because
+# they are a source of non-reproducibility, and we are aiming for
+# reproducibility. Well, not full reproducibility with debootstrap, since it
+# itself is not reproducible, but reproducible with a documented list of
+# deviating files which are not necessary for the proper functioning of the
+# image.
+#
+# Exact reproducibility with debuerreotype is a good goal, but the script has
+# not been extended to it yet. (https://github.com/debuerreotype/debuerreotype).
+# Since debuerreotype is built on top of debootstrap, debootstrap seems like a
+# good first step.
+#
+# The image is fully functional without these files.
+cleanup () {
+    # The contents of dev are mostly decided by the Linux kernel, and can easily
+    # be recreated when needed. For debootstrap it mounts or mknods a bunch of
+    # stuff into there, but basically none of that seems necessary.
+    rm -rfv "${1:?}"/dev/*
+
+    # This is created in the ./bootstrap script, likely because we don't
+    # suppress the daemon start/stop script like deboostrap. This is the only
+    # file that results, though, and it can just be deleted.
+    rm -rfv "${1}"/etc/apparmor.d/local/sbin.dhclient
+
+    # A placeholder fstab is created by deboostrap with just a comment. The
+    # ./bootstrap script could easily be updated to mimic this, but instead just
+    # remove the file.
+    rm -rfv "${1}"/etc/fstab
+
+    # debootstrap will copy /etc/hostname from the host, we get rid of it.
+    rm -rfv "${1}"/etc/hostname
+
+    # Both scripts generate this random ID. Remove it since it can easily be
+    # regenerated later and is a source of non-reproducibility.
+    rm -rfv "${1}"/etc/machine-id
+
+    # This is just a symlink created by debootstrap but not the ./bootstrap
+    # script. The ./bootstrap script could easily mimic that, but 
+    rm -rfv "${1}"/etc/mtab
+
+    # debootstrap will copy /etc/resolv.conf from the host, we get rid of it.
+    rm -rfv "${1}"/etc/resolv.conf
+
+    # debootstrap creates this. The ./bootstrap script could too, but it's not
+    # needed so just get rid of it.
+    rm -rfv "${1}"/root/.ssh
+
+    # Both the ./bootstrap script and debootstrap leave some state files in
+    # here. According to the Linux FHS, the /run directory is to be cleared each
+    # boot, so it should be fine to remove its contents.
+    # https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html
+    rm -rfv "${1}"/run/*
+
+    # Both the ./bootstrap script and debootstrap leave some files in here.
+    # According to the Linux FHS, the application must be able to regenerate or
+    # restore any data in the /var/cache directory, so it should be fine to
+    # remove its contents.
+    rm -rfv "${1}"/var/cache/*
+
+    # Apt stores some downloaded files from the mirror here, but they can be
+    # retreived again. The ./bootstrap script doesn't bother making them, and
+    # since they can be recreated, it's easier to just remove them here.
+    rm -rfv "${1}"/var/lib/apt/lists/*
+
+    # This is a file used by dpkg to know what packages are available. The local
+    # ./bootstrap script and debootstrap both generate basically the same file,
+    # but the ordering is different. They could be made the same with some
+    # effort, but this file is not actually essential and can be regenerated
+    # from the package list, so it should be good to remove here.
+    rm -rfv "${1}"/var/lib/dpkg/available
+
+    # This is a file that can be used by dpkg for backup purposes, but is
+    # generally not needed, especially on a just-bootstrapped system.
+    rm -rfv "${1}"/var/lib/dpkg/status-old
+
+    # These are log files that have timestamps which are a source of
+    # non-reproducibility.
+    rm -rfv "${1}"/var/log/bootstrap.log
+    rm -rfv "${1}"/var/log/dpkg.log
+    rm -rfv "${1}"/var/log/alternatives.log
+
+    # debootstrap creates this file to warn users that the journal exists. The
+    # ./bootstrap script could create it, but prefer just removing it here.
+    rm -rfv "${1}"/var/log/README
+}
+
+# Clean up from any previous run.
+rm -rf work
+mkdir work
+cd work
+
+# Run both bootstrapping scripts.
+../bootstrap
+debootstrap bookworm debian-theirs https://deb.debian.org/debian
+
+# Run the same cleanup function on the output of both.
+cleanup debian-theirs
+cleanup debian
+
+# Compare them. We should get the same thing (other than timestamps).
+if ! diffoscope --exclude-directory-metadata=yes --text=diff.out \
+        debian debian-theirs; then
+    cat diff.out
+    exit 1
+fi
