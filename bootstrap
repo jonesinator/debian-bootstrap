@@ -378,6 +378,7 @@ rm -rf "${temp_dir}"
 mkdir "${temp_dir}"
 unpack_packages "${required_packages}" \
     "${cache_dir}" "${output_dir}" "${temp_dir}"
+rm -rf "${temp_dir}"
 
 # Perform the usr directory merge.
 restore="$(pwd)"

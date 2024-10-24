@@ -91,6 +91,13 @@ cleanup () {
     rm -rfv "${1}"/var/log/README
 }
 
+# If we aren't running as root already, try to fake running as root using
+# unshare.
+if [ "$(id -u)" -ne "0" ]; then
+    exec unshare --map-root-user --map-auto --mount --mount-proc --fork --pid \
+        "${0}"
+fi
+
 # Clean up from any previous run.
 rm -rf work
 mkdir work
