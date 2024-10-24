@@ -105,7 +105,7 @@ cd work
 
 # Run both bootstrapping scripts.
 ../bootstrap
-debootstrap bookworm debian-theirs https://deb.debian.org/debian
+debootstrap --arch arm64 bookworm debian-theirs https://deb.debian.org/debian
 
 # Run the same cleanup function on the output of both.
 cleanup debian-theirs

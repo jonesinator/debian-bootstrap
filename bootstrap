@@ -9,6 +9,7 @@
 # Mirror configuration.
 : "${mirror:="https://deb.debian.org/debian"}"
 : "${distribution:="bookworm"}"
+: "${architecture:="arm64"}"
 : "${key_url:="https://ftp-master.debian.org/keys"}"
 : "${keys:="archive-key-11.asc archive-key-12.asc release-12.asc"}"
 : "${keyserver:="hkps://keyserver.ubuntu.com"}"
@@ -344,8 +345,8 @@ release="$(get_release \
     "${mirror}" "${distribution}" "${key_url}" "${keys}" "${fingerprints}" \
     "${keyserver}" "${cache_dir}" "${temp_dir}")"
 all_packages="$(get_release_file \
-    "${mirror}" "${distribution}" "${release}" "main/binary-amd64/Packages" \
-    "${cache_dir}" "${temp_dir}")"
+    "${mirror}" "${distribution}" "${release}" \
+    "main/binary-${architecture}/Packages" "${cache_dir}" "${temp_dir}")"
 
 # Determine the "required" packages.
 priority_required_packages="$(filter_packages \
@@ -384,12 +385,14 @@ rm -rf "${temp_dir}"
 restore="$(pwd)"
 cd "${output_dir}"
 for dir in bin lib sbin; do
-  cp -r "${dir}"/* "usr/${dir}/"
-  rm -rf "${dir}"
-  ln -s "usr/${dir}" "${dir}"
+    cp -r "${dir}"/* "usr/${dir}/"
+    rm -rf "${dir}"
+    ln -s "usr/${dir}" "${dir}"
 done
-mv lib64 usr/lib64
-ln -s usr/lib64 lib64
+if [ -e lib64 ]; then
+    mv lib64 usr/lib64
+    ln -s usr/lib64 lib64
+fi
 cd "${restore}"
 
 # Ensure a copy of all of the downloaded files is available within the target
@@ -464,7 +467,6 @@ while predep="$(in_target "${output_dir}" dpkg --predep-package)"; do
         "${predep_package_names_without_required}" "${installed_predeps}")"
     predep_package_names_regex="^($(echo "${predep_package_names}" |
         tr '\n' '|' | sed 's/^|//' | sed 's/|$//'))$"
-    echo "AARON ${predep_package_names_regex}"
     predep_archives="$(deb_for_packages \
         "${install_packages}" "${predep_package_names_regex}")"
     # shellcheck disable=SC2086
