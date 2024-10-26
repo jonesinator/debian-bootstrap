@@ -31,6 +31,23 @@
 # Functions                                                                    #
 ################################################################################
 
+cache_path() {
+    url__="${1}"
+    cache_dir__="${2}"
+
+    host__="$(echo "${url__}" | sed 's|^http.://||' | cut -d/ -f1)"
+    file_path__="$(echo "${url__}" | sed 's|^http.://||' | cut -d/ -f2-)"
+    echo "${cache_dir__}/${host__}/${file_path__}"
+}
+
+download() {
+    url_="${1}"
+    cache_dir_="${2}"
+
+    wget -nc "${url_}" -P "$(dirname "$(cache_path "${url_}" "${cache_dir_}")")"
+    cache_path "${url_}" "${cache_dir_}"
+}
+
 # Takes two lists as arguments, and removes any line in the second from the
 # first. The result is output on stdout.
 remove_from() {
@@ -59,9 +76,7 @@ package_field() {
 # location of the root filesystem. The remaining arguments are the command to
 # run.
 in_target() {
-    rootfs_="${1}"
-    shift
-    PATH="/usr/bin:/usr/sbin" chroot "${rootfs_}" "${@}"
+    env -i PATH="/usr/bin:/usr/sbin" chroot "${@}"
 }
 
 # Prints the contents of the "Release" file of the package archive after
@@ -83,11 +98,12 @@ get_release() {
     rm -rf "${temp_path_}"
     mkdir -m 0700 "${temp_path_}"
     for key_ in ${keys_}; do
-        wget -nc "${key_url_}/${key_}" -P "${cache_dir_}"
-        gpg --homedir "${temp_path_}" --import "${cache_dir_}/${key_}"
+        key_path_="$(download "${key_url_}/${key_}" "${cache_dir_}")"
+        gpg --homedir "${temp_path_}" --import "${key_path_}"
     done
-    wget -nc "${mirror_}/dists/${distribution_}/InRelease" -P "${cache_dir_}"
-    gpg --homedir "${temp_path_}" --output - --verify "${cache_dir_}/InRelease"
+    in_release_path_="$(download \
+        "${mirror_}/dists/${distribution_}/InRelease" "${cache_dir_}")"
+    gpg --homedir "${temp_path_}" --output - --verify "${in_release_path_}"
     rm -rf "${temp_path_}"
 
     # Validate the InRelease file using the fingerprints and a keyserver, if
@@ -99,7 +115,7 @@ get_release() {
                 --keyserver "${keyserver_}" \
                 --recv-keys "${fingerprint_}"
         done
-        gpg --homedir "${temp_path_}" --verify "${cache_dir_}/InRelease"
+        gpg --homedir "${temp_path_}" --verify "${in_release_path_}"
         rm -rf "${temp_path_}"
     fi
 }
@@ -126,12 +142,12 @@ get_release_file() {
     packed_hash_="$(echo "${files_}" | grep "${path_}.gz$" | awk '{print $1}')"
     hash_path_="$(dirname "${path_}")/by-hash/SHA256/${packed_hash_}"
     url_="${mirror_}/dists/${distribution_}/${hash_path_}"
-    wget -nc "${url_}" -P "$(dirname "${cache_dir_}/${hash_path_}")"
-    echo "${packed_hash_}  ${cache_dir_}/${hash_path_}" | sha256sum -c --status
+    file_="$(download "${url_}" "${cache_dir_}")"
+    echo "${packed_hash_}  ${file_}" | sha256sum -c --status
 
     # Decompress the downloaded file and check its hash as well.
     rm -rf "${temp_path_}"
-    gunzip --stdout "${cache_dir_}/${hash_path_}" > "${temp_path_}"
+    gunzip --stdout "${file_}" > "${temp_path_}"
     unpacked_hash_="$(echo "${files_}" | grep "${path_}$" | awk '{print $1}')"
     echo "${unpacked_hash_}  ${temp_path_}" | sha256sum -c --status
     cat "${temp_path_}"
@@ -185,7 +201,7 @@ unique_packages() {
 # chroot.
 deb_for_packages() {
     filter_packages "${1}" "Package" "^${2}$" |
-        package_field "Filename" | sed "s|^|/cache/|"
+        package_field "Filename" | sed "s|^|$(cache_path "${3}/" "/cache")/|"
 }
 
 # Gets the non-recursive list of dependencies for a set of packages. Prints just
@@ -231,7 +247,7 @@ get_direct_package_dependencies() {
             continue
         fi
 
-	# If this dependency is already installed, there's nothing to do.
+        # If this dependency is already installed, there's nothing to do.
         echo "${direct_added_}" | grep --quiet "${direct_dep_}" && continue
 
         # Look for a package with the exact name. If one is found, use it.
@@ -300,17 +316,18 @@ get_packages() {
             "${packages_}" "Package" "^${package_}$")"
         path_="$(echo "${package_info_}" | package_field "Filename")"
         sha256_="$(echo "${package_info_}" | package_field "SHA256")"
-        wget -nc "${mirror_}/${path_}" -P "$(dirname "${cache_dir_}/${path_}")"
-        echo "${sha256_}  ${cache_dir_}/${path_}" | sha256sum -c --status
+        file_="$(download "${mirror_}/${path_}" "${cache_dir_}")"
+        echo "${sha256_}  ${file_}" | sha256sum -c --status
     done
 }
 
 # Unpacks 
 unpack_packages() {
-    packages_="${1}"
-    cache_dir_="${2}"
-    output_="${3}"
-    temp_dir_="${4}"
+    mirror_="${1}"
+    packages_="${2}"
+    cache_dir_="${3}"
+    output_="${4}"
+    temp_dir_="${5}"
 
     output_dir_="$(pwd)/${output_}"
     rm -rf "${output_dir_}" "${temp_dir_}"
@@ -318,8 +335,9 @@ unpack_packages() {
     for file_ in $(echo "${packages_}" | sed -n 's/^Filename: //p'); do
       restore_="$(pwd)"
       unpack_dir_="${temp_dir_}/$(basename "${file_}")"
+      full_path_="$(cache_path "${mirror}/${file_}" "${cache_dir_}")"
       mkdir -p "${unpack_dir_}"
-      cp "${cache_dir_}/${file_}" "${unpack_dir_}/package.deb"
+      cp "${full_path_}" "${unpack_dir_}/package.deb"
       cd "${unpack_dir_}"
       ar x package.deb
       rm package.deb
@@ -377,7 +395,7 @@ get_packages "${mirror}" "${install_packages}" "${cache_dir}"
 # Unpack just the "required" packages.
 rm -rf "${temp_dir}"
 mkdir "${temp_dir}"
-unpack_packages "${required_packages}" \
+unpack_packages "${mirror}" "${required_packages}" \
     "${cache_dir}" "${output_dir}" "${temp_dir}"
 rm -rf "${temp_dir}"
 
@@ -411,12 +429,12 @@ mount -t proc proc "${output_dir}/proc"
 ln -sf mawk "${output_dir}/usr/bin/awk"
 for package in base-passwd base-files dpkg libc6; do
     in_target "${output_dir}" dpkg --force-depends --install \
-        "$(deb_for_packages "${required_packages}" "${package}")"
+        "$(deb_for_packages "${required_packages}" "${package}" "${mirror}")"
 done
 rm "${output_dir}/usr/bin/awk"
 for package in mawk debconf; do
     in_target "${output_dir}" dpkg --force-depends --install \
-        "$(deb_for_packages "${required_packages}" "${package}")"
+        "$(deb_for_packages "${required_packages}" "${package}" "${mirror}")"
 done
 
 # Now we can unpack then configure all required packages. The configure requires
@@ -424,7 +442,7 @@ done
 # Assume UTC, it is the one true timezone.
 # shellcheck disable=SC2046
 in_target "${output_dir}" dpkg --force-depends --unpack \
-    $(deb_for_packages "${required_packages}" ".*")
+    $(deb_for_packages "${required_packages}" ".*" "${mirror}")
 ln -sf /usr/share/zoneinfo/UTC "${output_dir}/etc/localtime"
 in_target "${output_dir}" \
     dpkg --configure --pending --force-configure-any --force-depends
@@ -468,7 +486,7 @@ while predep="$(in_target "${output_dir}" dpkg --predep-package)"; do
     predep_package_names_regex="^($(echo "${predep_package_names}" |
         tr '\n' '|' | sed 's/^|//' | sed 's/|$//'))$"
     predep_archives="$(deb_for_packages \
-        "${install_packages}" "${predep_package_names_regex}")"
+        "${install_packages}" "${predep_package_names_regex}" "${mirror}")"
     # shellcheck disable=SC2086
     in_target "${output_dir}" dpkg --force-overwrite --force-confold \
         --skip-same-version --install ${predep_archives}
@@ -483,7 +501,7 @@ remaining_regex="^($(echo "${remaining_base_package_names}" | tr '\n' '|'))$"
 remaining_base_packages="$(filter_packages \
     "${base_packages}" "Package" "${remaining_regex}")"
 remaining_base_package_archives="$(deb_for_packages \
-    "${remaining_base_packages}" ".*")"
+    "${remaining_base_packages}" ".*" "${mirror}")"
 
 # Now we can unpack and configure the rest of the "base" package set.
 # shellcheck disable=SC2086

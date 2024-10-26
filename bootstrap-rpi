@@ -1,0 +1,837 @@
+#!/bin/sh
+set -eu
+
+# Overall configuration.
+: "${architecture:="arm64"}"
+
+# Debian mirror configuration.
+: "${debian_mirror_url:="http://deb.debian.org/debian"}"
+: "${debian_mirror_distribution:="bookworm"}"
+: "${debian_mirror_components:="main contrib non-free non-free-firmware"}"
+: "${debian_mirror_key_url:="https://ftp-master.debian.org/keys"}"
+: "${debian_mirror_keys:="archive-key-11.asc archive-key-12.asc release-12.asc"}"
+: "${debian_mirror_fingerprints:="1F89983E0081FDE018F3CC9673A4F27B8DD47936"
+                                 "B8B80B5B623EAB6AD8775C45B7C5D7D6350947F8"
+                                 "4D64FEC119C2029067D6E791F8D2585B8783D481"}"
+
+# Debian updates mirror configuration.
+: "${debian_updates_mirror_url:="http://deb.debian.org/debian"}"
+: "${debian_updates_mirror_distribution:="bookworm-updates"}"
+: "${debian_updates_mirror_components:="main contrib non-free non-free-firmware"}"
+: "${debian_updates_mirror_key_url:="https://ftp-master.debian.org/keys"}"
+: "${debian_updates_mirror_keys:="archive-key-11.asc archive-key-12.asc release-12.asc"}"
+: "${debian_updates_mirror_fingerprints:="1F89983E0081FDE018F3CC9673A4F27B8DD47936"
+                                         "B8B80B5B623EAB6AD8775C45B7C5D7D6350947F8"
+                                         "4D64FEC119C2029067D6E791F8D2585B8783D481"}"
+
+# Debian-security mirror configuration.
+: "${debian_security_mirror_url:="http://deb.debian.org/debian-security"}"
+: "${debian_security_mirror_distribution:="bookworm-security"}"
+: "${debian_security_mirror_components:="main contrib non-free non-free-firmware"}"
+: "${debian_security_mirror_key_url:="https://ftp-master.debian.org/keys"}"
+: "${debian_security_mirror_keys:="archive-key-11-security.asc archive-key-12-security.asc"}"
+: "${debian_security_mirror_fingerprints:="ED541312A33F1128F10B1C6C54404762BBB6E853"
+                                          "B0CAB9266E8C3929798B3EEEBDE6D2B9216EC7A8"}"
+
+# Raspberry Pi mirror configuration.
+: "${rpi_mirror_url:="http://archive.raspberrypi.com/debian"}"
+: "${rpi_mirror_distribution:="bookworm"}"
+: "${rpi_mirror_components:="main"}"
+: "${rpi_mirror_key_url:="http://archive.raspberrypi.com/debian"}"
+: "${rpi_mirror_keys:="raspberrypi.gpg.key"}"
+: "${rpi_mirror_fingerprints:="CF8A1AF502A2AA2D763BAE7E82B129927FA3303E"}"
+
+# Package configuration.
+: "${exclude_packages_regex="^usrmerge$"}"
+: "${additional_required_packages_regex:="^usr-is-merged$"}"
+: "${additional_base_packages_regex:="^ca-certificates$"}"
+
+# Verification configuration.
+: "${keyserver:="hkps://keyserver.ubuntu.com"}"
+
+# Local directory configuration.
+: "${cache_dir:="./cache"}"
+: "${temp_dir:="./tmp"}"
+: "${output_dir:="./debian"}"
+
+#
+# Functions
+#
+# The functions in this script obey very strict rules in an attempt to sure that
+# the script is still somewhat readable while using only things valid in POSIX
+# shell. Unfortunately "local" is non-POSIX, and some shells do not implement
+# it, so some of these rules are meant to replace that functionality.
+#
+# The following rules ensure that functions have no environmental side-effects
+# so that functions can call each other without stepping on each other, and that
+# all context required to understand a function is within the function:
+#
+#   - Functions take in information only via stdin and arguments. This means
+#     that functions never read "global" environment variables, i.e. functions
+#     can only refer to environment variables that are assigned within the
+#     function block.
+#   - Functions emit information only via stdout.
+#   - Functions give a unique suffix to every environment variable created
+#     within the function block. Essentially each function is assigned a letter,
+#     and all variables end with two underscores followed by that letter. This
+#     ensures functions cannot accidentally step on each other's environment
+#     variables.
+#   - Functions unset every variable assigned in the function block at the end
+#     of the function, except when returning in error. This is not strictly
+#     necessary, but keeps the environment clean.
+#
+# The above rules only speak of environmental side-effects, filesystem
+# side-effects and other side-effect channels are still allowed, otherwise
+# nothing could happen. These rules are only meant to ensure a sane scripting
+# environment to avoid the script devolving into spaghetti and relying too much
+# on implicit things happening within functions.
+#
+
+# Determines the path in the local cache to a file by its URL. Prints the path
+# to the file on stdout.
+cache_path() {
+    url__a="${1}"
+    cache_dir__a="${2}"
+
+    host__a="$(echo "${url__a}" | sed 's|^https\?://||' | cut -d/ -f1)"
+    file_path__a="$(echo "${url__a}" | sed 's|^https\?://||' | cut -d/ -f2-)"
+    echo "${cache_dir__a}/${host__a}/${file_path__a}" |
+        sed 's/%/\\\\x/g' | xargs echo -e
+
+    unset url__a cache_dir__a host__a file_path__a
+}
+
+# Downloads a file by URL to the local cache and prints the path to the file on
+# stdout. Any existing file will not be overwritten, and if the file exists then
+# this function will not attempt to reach out to the internet. This function
+# should be safe to use in offline contexts assuming the cache is populated.
+#
+# ALL access to the internet should be mediated through this function, and this
+# function alone.
+download() {
+    url__b="${1}"
+    cache_dir__b="${2}"
+
+    wget -nc "${url__b}" \
+        -P "$(dirname "$(cache_path "${url__b}" "${cache_dir__b}")")"
+    cache_path "${url__b}" "${cache_dir__b}"
+
+    unset url__b cache_dir__b
+}
+
+# Prints the contents of the "InRelease" file of the package archive after
+# validating its signatures. The contents of the signed "InRelease" file and the
+# public keys used to validate it are cached in the cache directory.
+get_release() {
+    mirror__c="${1}"
+    distribution__c="${2}"
+    key_url__c="${3}"
+    keys__c="${4}"
+    fingerprints__c="${5}"
+    keyserver__c="${6}"
+    cache_dir__c="${7}"
+    temp_path__c="${8}"
+
+    # Download the signing keys and the InRelease file, then validate the
+    # InRelease file.
+    rm -rf "${temp_path__c}"
+    mkdir -m 0700 "${temp_path__c}"
+    for key__c in ${keys__c}; do
+        key_path__c="$(download "${key_url__c}/${key__c}" "${cache_dir__c}")"
+        gpg --homedir "${temp_path__c}" --import "${key_path__c}"
+    done
+    in_release_path__c="$(download \
+        "${mirror__c}/dists/${distribution__c}/InRelease" "${cache_dir__c}")"
+    gpg --homedir "${temp_path__c}" --verify "${in_release_path__c}"
+    rm -rf "${temp_path__c}"
+
+    # Validate the InRelease file using the fingerprints and a keyserver, if
+    # requested.
+    if [ "${keyserver__c}" != "none" ]; then
+        mkdir -m 0700 "${temp_path__c}"
+        for fingerprint__c in ${fingerprints__c}; do
+            gpg --homedir "${temp_path__c}" \
+                --keyserver "${keyserver__c}" \
+                --recv-keys "${fingerprint__c}"
+        done
+        gpg --homedir "${temp_path__c}" --verify "${in_release_path__c}"
+        rm -rf "${temp_path__c}"
+    fi
+
+    cat "${in_release_path__c}"
+
+    unset mirror__c distribution__c key_url__c keys__c fingerprints__c
+    unset keyserver__c cache_dir__c temp_path__c key__c in_release_path__c
+    unset fingerprint__c
+}
+
+# Prints the verified contents a file described by the "Release" file of the
+# package archive by path.
+get_release_file() {
+    mirror__d="${1}"
+    distribution__d="${2}"
+    release__d="${3}"
+    path__d="${4}"
+    cache_dir__d="${5}"
+    temp_path__d="${6}"
+
+    # Parse the files from the release in the format " {sha256} {size} {path}".
+    # The first sed starts capturing after the line with "SHA256:", and the
+    # second sed stops capturing on the first line that does not stop with a
+    # space.
+    files__d="$(echo "${release__d}" | sed '1,/^SHA256:$/ d' | sed '/^[^ ]/Q')"
+
+    # Look for the compressed file.
+    for compression__d in "xz" "gz"; do
+        packed_path__d="${path__d}.${compression__d}"
+        packed_hash__d="$(echo "${files__d}" |
+            grep " ${packed_path__d}$" | cut -d' ' -f2)"
+        if [ -n "${packed_hash__d}" ]; then
+            break
+        fi
+    done
+    if [ -z "${packed_hash__d}" ]; then
+        return 1
+    fi
+
+    # Prefer getting files by their hash if possible.
+    by_hash__d="$( \
+        echo "${release__d}" | sed -n 's/Acquire-By-Hash: //p' || echo "no")"
+    if [ "${by_hash__d}" = "yes" ]; then
+        download_path__d="$(dirname "${path__d}")/by-hash/SHA256/${packed_hash__d}"
+    else
+        download_path__d="${packed_path__d}"
+    fi
+
+    # Get the compressed file and check its hash.
+    url__d="${mirror__d}/dists/${distribution__d}/${download_path__d}"
+    file__d="$(download "${url__d}" "${cache_dir__d}")"
+    echo "${packed_hash__d}  ${file__d}" | sha256sum -c --status
+
+    # Decompress the downloaded file and check its hash as well.
+    extension__d="$(echo "${packed_path__d}" | rev | cut -d. -f1 | rev)"
+    rm -rf "${temp_path__d}"
+    case "${extension__d}" in
+        gz) gzip --decompress --stdout "${file__d}" > "${temp_path__d}" ;;
+        xz) xz --decompress --stdout "${file__d}" > "${temp_path__d}" ;;
+    esac
+    unpacked_hash__d="$(echo "${files__d}" | grep "${path__d}$" | cut -d' ' -f2)"
+    echo "${unpacked_hash__d}  ${temp_path__d}" | sha256sum -c --status
+    cat "${temp_path__d}"
+    rm "${temp_path__d}"
+
+    unset mirror__d distribution__d release__d path__d cache_dir__d temp_path__d
+    unset files__d compression__d packed_path__d packed_hash__d by_hash__d
+    unset download_path__d url__d file__d extension__d unpacked_hash__d
+}
+
+# Converts a package metadata file URL to the filename it should have in
+# /var/cache/apt. Prints the filename to stdout.
+url_to_apt_list() {
+    url__e="${1}"
+
+    echo "${url__e}" | sed 's|^https\?://||' | sed 's|/|_|g'
+
+    unset url__e
+}
+
+# Runs a "manual" apt update by downloading the appropriate package metadata
+# files from the mirror and putting them in the output dir with the correct
+# names for /var/cache/apt. Effectially this does an "apt update", but it uses
+# this script's cache and download utilities.
+manual_apt_update() {
+    url__f="${1}"
+    distribution__f="${2}"
+    components__f="${3}"
+    key_url__f="${4}"
+    keys__f="${5}"
+    fingerprints__f="${6}"
+    keyserver__f="${7}"
+    cache_dir__f="${8}"
+    temp_dir__f="${9}"
+    out_dir__f="${10}"
+    shift 10
+    files__f="${@}"
+
+    prefix__f="${url__f}/dists/${distribution__f}"
+    release_data__f="$(get_release \
+        "${url__f}" \
+        "${distribution__f}" \
+        "${key_url__f}" \
+        "${keys__f}" \
+        "${fingerprints__f}" \
+        "${keyserver__f}" \
+        "${cache_dir__f}" \
+        "${temp_dir__f}" | tee "${out_dir__f}/$(url_to_apt_list "${prefix__f}/InRelease")")"
+    for component__f in ${components__f}; do
+        for file__f in ${files__f}; do
+            contents__f="$(get_release_file \
+                "${url__f}" \
+                "${distribution__f}" \
+                "${release_data__f}" \
+                "${component__f}/${file__f}" \
+                "${cache_dir__f}" \
+                "${temp_dir__f}")"
+            if [ -n "${contents__f}" ]; then
+                echo "${contents__f}" > "${out_dir__f}/$(url_to_apt_list "${prefix__f}/${component__f}/${file__f}")"
+            fi
+        done
+    done
+
+    touch "${out_dir__f}/lock"
+    mkdir -p "${out_dir__f}/auxfiles"
+    mkdir -p "${out_dir__f}/partial"
+
+    unset url__f distribution__f components__f key_url__f keys__f
+    unset fingerprints__f keyserver__f cache_dir__f temp_dir__f out_dir__f
+    unset files__f prefix__f release_data__f component__f file__f contents__f
+}
+
+in_target() {
+    env -i PATH="/usr/bin:/usr/sbin" DEBIAN_FRONTEND=noninteractive chroot "${@}"
+}
+
+manual_apt_install() {
+    cache_dir__g="${1}"
+    output_dir__g="${2}"
+    command__g="${3}"
+    shift 3
+    args__g="${@}"
+
+    infos__g="$(in_target "${output_dir__g}" apt-get -qq "${command__g}" --print-uris ${args__g})"
+    echo "${infos__g}" | while IFS= read -r info__g; do
+      uri__g="$(echo "${info__g}" | cut -d' ' -f1 | tr -d "\'")"
+      destination__g="$(echo "${info__g}" | cut -d' ' -f2)"
+      md5_hash__g="$(echo "${info__g}" | cut -d' ' -f4 | cut -c8-)"
+      cache_path__g="$(download "${uri__g}" "${cache_dir__g}")"
+      if [ -n "${md5_hash__g}" ]; then
+          echo "${md5_hash__g}  ${cache_path__g}" | md5sum -c --status
+      else
+          echo "WARNING: Not validating hash for ${destination__g}" 1>&2
+      fi
+      mkdir -p "${output_dir}/var/cache/apt/archives"
+      cp "${cache_path__g}" "${output_dir__g}/var/cache/apt/archives/${destination__g}"
+    done
+    in_target "${output_dir__g}" apt-get "${command__g}" --no-download --yes ${args__g}
+
+    unset cache_dir__g output_dir__g command__g args__g infos__g uri__g
+    unset destination__g md5_hash__g cache_path__g
+}
+
+#
+# Main Script
+#
+
+if [ "$(id -u)" -ne "0" ]; then
+    exec unshare --map-root-user --map-auto --mount --mount-proc --fork --pid "${0}" "${@}"
+fi
+
+cat << EOF > "${output_dir}/etc/apt/sources.list"
+deb ${debian_mirror_url} ${debian_mirror_distribution} ${debian_mirror_components}
+deb ${debian_security_mirror_url}/ ${debian_security_mirror_distribution} ${debian_security_mirror_components}
+deb ${debian_updates_mirror_url} ${debian_updates_mirror_distribution} ${debian_updates_mirror_components}
+# Uncomment deb-src lines below then 'apt-get update' to enable 'apt-get source'
+#deb-src ${debian_mirror_url} ${debian_mirror_distribution} ${debian_mirror_components}
+#deb-src ${debian_security_mirror_url}/ ${debian_security_mirror_distribution} ${debian_security_mirror_components}
+#deb-src ${debian_updates_mirror_url} ${debian_updates_mirror_distribution} ${debian_updates_mirror_components}
+EOF
+
+cat << EOF > "${output_dir}/etc/apt/sources.list.d/raspi.list"
+deb ${rpi_mirror_url}/ ${rpi_mirror_distribution} ${rpi_mirror_components}
+# Uncomment line below then 'apt-get update' to enable 'apt-get source'
+#deb-src ${rpi_mirror_url}/ ${rpi_mirror_distribution} ${rpi_mirror_components}
+EOF
+
+# TODO USE DOWNLOAD WTF
+wget "${rpi_mirror_key_url}/${rpi_mirror_keys}" -O - | gpg --dearmor > \
+    "${output_dir}/etc/apt/trusted.gpg.d/raspberrypi-archive-stable.gpg"
+
+manual_apt_update \
+    "${debian_mirror_url}" \
+    "${debian_mirror_distribution}" \
+    "${debian_mirror_components}" \
+    "${debian_mirror_key_url}" \
+    "${debian_mirror_keys}" \
+    "${debian_mirror_fingerprints}" \
+    "${keyserver}" \
+    "${cache_dir}" \
+    "${temp_dir}" \
+    "${output_dir}/var/lib/apt/lists" \
+    "binary-${architecture}/Packages" "i18n/Translation-en"
+
+manual_apt_update \
+    "${debian_updates_mirror_url}" \
+    "${debian_updates_mirror_distribution}" \
+    "${debian_updates_mirror_components}" \
+    "${debian_updates_mirror_key_url}" \
+    "${debian_updates_mirror_keys}" \
+    "${debian_updates_mirror_fingerprints}" \
+    "${keyserver}" \
+    "${cache_dir}" \
+    "${temp_dir}" \
+    "${output_dir}/var/lib/apt/lists" \
+    "binary-${architecture}/Packages" "i18n/Translation-en"
+
+manual_apt_update \
+    "${debian_security_mirror_url}" \
+    "${debian_security_mirror_distribution}" \
+    "${debian_security_mirror_components}" \
+    "${debian_security_mirror_key_url}" \
+    "${debian_security_mirror_keys}" \
+    "${debian_security_mirror_fingerprints}" \
+    "${keyserver}" \
+    "${cache_dir}" \
+    "${temp_dir}" \
+    "${output_dir}/var/lib/apt/lists" \
+    "binary-${architecture}/Packages" "i18n/Translation-en"
+
+manual_apt_update \
+    "${rpi_mirror_url}" \
+    "${rpi_mirror_distribution}" \
+    "${rpi_mirror_components}" \
+    "${rpi_mirror_key_url}" \
+    "${rpi_mirror_keys}" \
+    "${rpi_mirror_fingerprints}" \
+    "${keyserver}" \
+    "${cache_dir}" \
+    "${temp_dir}" \
+    "${output_dir}/var/lib/apt/lists" \
+    "binary-${architecture}/Packages"
+
+# unshare unfriendly :(
+mount -t tmpfs nodev "${output_dir}/tmp"
+mount -t proc nodev "${output_dir}/proc"
+mount -t devtmpfs nodev "${output_dir}/dev"
+
+in_target "${output_dir}" dpkg --add-architecture armhf
+manual_apt_install "${cache_dir}" "${output_dir}" dist-upgrade
+manual_apt_install "${cache_dir}" "${output_dir}" install raspberrypi-archive-keyring
+
+in_target "${output_dir}" debconf-set-selections << EOF
+locales	locales/locales_to_be_generated	multiselect	en_GB.UTF-8 UTF-8
+locales	locales/default_environment_locale	select	en_GB.UTF-8
+EOF
+manual_apt_install "${cache_dir}" "${output_dir}" install locales
+
+mv "${output_dir}/usr/bin/ischroot" "${output_dir}/usr/bin/ischroot.bak"
+echo "#!/bin/sh" > "${output_dir}/usr/bin/ischroot"
+chmod 755 "${output_dir}/usr/bin/ischroot"
+manual_apt_install "${cache_dir}" "${output_dir}" install --yes \
+    initramfs-tools \
+    raspi-firmware \
+    linux-image-rpi-v8 \
+    linux-image-rpi-2712 \
+    linux-headers-rpi-v8 \
+    linux-headers-rpi-2712
+mv "${output_dir}/usr/bin/ischroot.bak" "${output_dir}/usr/bin/ischroot"
+sed -i 's/^update_initramfs=yes/update_initramfs=no/' \
+    "${output_dir}/etc/initramfs-tools/update-initramfs.conf"
+rm -rf "${output_dir}"/vmlinuz*
+rm -rf "${output_dir}"/initrd.img*
+
+ln -s firmware/overlays "${output_dir}/boot/overlays"
+cat << EOF > "${output_dir}/boot/firmware/cmdline.txt"
+console=serial0,115200 console=tty1 root=ROOTDEV rootfstype=ext4 fsck.repair=yes rootwait quiet init=/usr/lib/raspberrypi-sys-mods/firstboot
+EOF
+
+cat << EOF > "${output_dir}/boot/firmware/config.txt"
+# For more options and information see
+# http://rptl.io/configtxt
+# Some settings may impact device functionality. See link above for details
+
+# Uncomment some or all of these to enable the optional hardware interfaces
+#dtparam=i2c_arm=on
+#dtparam=i2s=on
+#dtparam=spi=on
+
+# Enable audio (loads snd_bcm2835)
+dtparam=audio=on
+
+# Additional overlays and parameters are documented
+# /boot/firmware/overlays/README
+
+# Automatically load overlays for detected cameras
+camera_auto_detect=1
+
+# Automatically load overlays for detected DSI displays
+display_auto_detect=1
+
+# Automatically load initramfs files, if found
+auto_initramfs=1
+
+# Enable DRM VC4 V3D driver
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+
+# Don't have the firmware create an initial video= setting in cmdline.txt.
+# Use the kernel's default instead.
+disable_fw_kms_setup=1
+
+# Run in 64-bit mode
+arm_64bit=1
+
+# Disable compensation for displays with overscan
+disable_overscan=1
+
+# Run as fast as firmware / board allows
+arm_boost=1
+
+[cm4]
+# Enable host mode on the 2711 built-in XHCI USB controller.
+# This line should be removed if the legacy DWC2 controller is required
+# (e.g. for USB device mode) or if USB support is not required.
+otg_mode=1
+
+[cm5]
+dtoverlay=dwc2,dr_mode=host
+
+[all]
+EOF
+
+echo "do_symlinks=0" > "${output_dir}/etc/kernel-img.conf"
+
+for file in cmdline config; do
+    cat << EOF > "${output_dir}/boot/${file}.txt"
+DO NOT EDIT THIS FILE
+
+The file you are looking for has moved to /boot/firmware/${file}.txt
+EOF
+done
+
+cat << 'EOF' > "${output_dir}/etc/apt/apt.conf.d/50raspi"
+# never use pdiffs. Current implementation is very slow on low-powered devices
+Acquire::PDiffs "0";
+
+# download up to 5 pdiffs:
+#Acquire::PDiffs::FileLimit "5";
+EOF
+
+cat << 'EOF' > "${output_dir}/etc/rc.local"
+#!/bin/sh -e
+#
+# rc.local
+#
+# This script is executed at the end of each multiuser runlevel.
+# Make sure that the script will "exit 0" on success or any other
+# value on error.
+#
+# In order to enable or disable this script just change the execution
+# bits.
+#
+# By default this script does nothing.
+
+# Print the IP address
+_IP=$(hostname -I) || true
+if [ "$_IP" ]; then
+  printf "My IP address is %s\n" "$_IP"
+fi
+
+exit 0
+EOF
+chmod 755 "${output_dir}/etc/rc.local"
+
+mkdir -p "${output_dir}/etc/systemd/system/getty@tty1.service.d"
+cat << EOF > "${output_dir}/etc/systemd/system/getty@tty1.service.d/noclear.conf"
+[Service]
+TTYVTDisallocate=no
+EOF
+cat << EOF > "${output_dir}/etc/fstab"
+proc            /proc           proc    defaults          0       0
+BOOTDEV  /boot/firmware  vfat    defaults          0       2
+ROOTDEV  /               ext4    defaults,noatime  0       1
+EOF
+
+echo "root:root" | in_target "${output_dir}" chpasswd
+echo "raspberrypi" > "${output_dir}/etc/hostname"
+echo "127.0.1.1		raspberrypi" >> "${output_dir}/etc/hosts"
+
+cat << 'EOF' > "${output_dir}/etc/init.d/resize2fs_once"
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          resize2fs_once
+# Required-Start:
+# Required-Stop:
+# Default-Start: 3
+# Default-Stop:
+# Short-Description: Resize the root filesystem to fill partition
+# Description:
+### END INIT INFO
+. /lib/lsb/init-functions
+case "$1" in
+  start)
+    log_daemon_msg "Starting resize2fs_once"
+    ROOT_DEV=$(findmnt / -o source -n) &&
+    resize2fs $ROOT_DEV &&
+    update-rc.d resize2fs_once remove &&
+    rm /etc/init.d/resize2fs_once &&
+    log_end_msg $?
+    ;;
+  *)
+    echo "Usage: $0 start" >&2
+    exit 3
+    ;;
+esac
+EOF
+chmod 755 "${output_dir}/etc/init.d/resize2fs_once"
+
+patch --no-backup-if-mismatch "${output_dir}/etc/skel/.bashrc" <<'EOF'
+@@ -43,7 +43,7 @@
+ # uncomment for a colored prompt, if the terminal has the capability; turned
+ # off by default to not distract the user: the focus in a terminal window
+ # should be on the output of commands, not on the prompt
+-#force_color_prompt=yes
++force_color_prompt=yes
+ 
+ if [ -n "$force_color_prompt" ]; then
+     if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+@@ -57,7 +57,7 @@
+ fi
+ 
+ if [ "$color_prompt" = yes ]; then
+-    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
++    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w \$\[\033[00m\] '
+ else
+     PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+ fi
+@@ -79,9 +79,9 @@
+     #alias dir='dir --color=auto'
+     #alias vdir='vdir --color=auto'
+ 
+-    #alias grep='grep --color=auto'
+-    #alias fgrep='fgrep --color=auto'
+-    #alias egrep='egrep --color=auto'
++    alias grep='grep --color=auto'
++    alias fgrep='fgrep --color=auto'
++    alias egrep='egrep --color=auto'
+ fi
+ 
+ # colored GCC warnings and errors
+EOF
+
+manual_apt_install "${cache_dir}" "${output_dir}" install --yes \
+    netbase \
+    raspi-config \
+    systemd-timesyncd
+in_target "${output_dir}" adduser --disabled-password --gecos "" pi
+in_target "${output_dir}" debconf-set-selections << EOF
+console-setup   console-setup/charmap47 select  UTF-8
+console-setup   console-setup/codeset47 select  Guess optimal character set
+console-setup   console-setup/fontface47        select  Do not change the boot/kernel font
+keyboard-configuration	keyboard-configuration/altgr	select	The default for the keyboard layout
+keyboard-configuration	keyboard-configuration/model	select	Generic 105-key (Intl) PC
+keyboard-configuration	keyboard-configuration/xkb-keymap	select	gb
+keyboard-configuration	keyboard-configuration/compose	select	No compose key
+keyboard-configuration	keyboard-configuration/ctrl_alt_bksp	boolean	true
+keyboard-configuration  keyboard-configuration/variant  select  English (UK)
+keyboard-configuration  keyboard-configuration/optionscode      string  PLACEHOLDER
+EOF
+
+in_target "${output_dir}" sh -c 'SUDO_USER=pi raspi-config nonint do_net_names 1'
+manual_apt_install "${cache_dir}" "${output_dir}" install --yes --no-install-recommends \
+    cifs-utils \
+    mkvtoolnix \
+    rpicam-apps-lite
+manual_apt_install "${cache_dir}" "${output_dir}" install --yes \
+    apt-listchanges \
+    avahi-daemon \
+    bash-completion \
+    build-essential \
+    ca-certificates \
+    console-setup \
+    curl \
+    debconf-utils \
+    dosfstools \
+    dphys-swapfile \
+    ed \
+    ethtool \
+    fake-hwclock \
+    fbset \
+    file \
+    gdb \
+    gpiod \
+    htop \
+    keyboard-configuration \
+    kms++-utils \
+    less \
+    libmtp-runtime \
+    libpam-chksshpwd \
+    lua5.1 \
+    luajit \
+    man-db \
+    manpages-dev \
+    ncdu \
+    nfs-common \
+    ntfs-3g \
+    p7zip-full \
+    parted \
+    pciutils \
+    pi-bluetooth \
+    pigpio \
+    pkg-config \
+    policykit-1 \
+    psmisc \
+    python-is-python3 \
+    python3-gpiozero \
+    python3-libgpiod \
+    python3-pigpio \
+    python3-rpi-lgpio \
+    python3-smbus2 \
+    python3-spidev \
+    python3-venv \
+    raspberrypi-sys-mods \
+    raspi-gpio \
+    raspi-utils \
+    rpi-eeprom \
+    rpi-update \
+    rsync \
+    ssh \
+    ssh-import-id \
+    strace \
+    sudo \
+    udisks2 \
+    unzip \
+    usb-modeswitch \
+    usbutils \
+    v4l-utils \
+    zip
+
+cat << 'EOF' > "${output_dir}/etc/default/console-setup"
+# CONFIGURATION FILE FOR SETUPCON
+
+# Consult the console-setup(5) manual page.
+
+ACTIVE_CONSOLES="/dev/tty[1-6]"
+
+CHARMAP="UTF-8"
+
+CODESET="guess"
+FONTFACE=""
+FONTSIZE=""
+
+VIDEOMODE=
+
+# The following is an example how to use a braille font
+# FONT='lat9w-08.psf.gz brl-8x8.psf'
+EOF
+
+sed -i "s/PLACEHOLDER//" "${output_dir}/etc/default/keyboard"
+
+in_target "${output_dir}" systemctl disable hwclock.sh
+in_target "${output_dir}" systemctl disable nfs-common
+in_target "${output_dir}" systemctl disable rpcbind
+in_target "${output_dir}" systemctl disable ssh
+in_target "${output_dir}" systemctl enable regenerate_ssh_host_keys
+in_target "${output_dir}" systemctl enable resize2fs_once
+in_target "${output_dir}" setupcon --force --save-only -v
+in_target "${output_dir}" usermod --pass='*' root
+in_target "${output_dir}" dpkg-reconfigure keyboard-configuration
+for group in input spi i2c gpio; do
+    in_target "${output_dir}" groupadd -f -r "${group}"
+done
+for group in adm dialout cdrom audio users sudo video games plugdev input gpio spi i2c netdev render; do
+    in_target "${output_dir}" adduser pi "${group}"
+done
+
+manual_apt_install "${cache_dir}" "${output_dir}" install --yes \
+    firmware-atheros \
+    firmware-brcm80211 \
+    firmware-libertas \
+    firmware-misc-nonfree \
+    firmware-realtek \
+    net-tools \
+    network-manager \
+    raspberrypi-net-mods \
+    wireless-tools \
+    wpasupplicant
+
+cat << EOF > "${output_dir}/etc/wpa_supplicant/wpa_supplicant.conf"
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+EOF
+
+mkdir -p "${output_dir}/var/lib/systemd/rfkill"
+echo 1 > "${output_dir}/var/lib/systemd/rfkill/platform-3f300000.mmcnr:wlan"
+echo 1 > "${output_dir}/var/lib/systemd/rfkill/platform-fe300000.mmcnr:wlan"
+echo 1 > "${output_dir}/var/lib/systemd/rfkill/platform-1001100000.mmc:wlan"
+
+echo "Europe/London" > "${output_dir}/etc/timezone"
+rm "${output_dir}/etc/localtime"
+in_target "${output_dir}" dpkg-reconfigure -f noninteractive tzdata
+
+in_target "${output_dir}" debconf-set-selections << EOF
+wolfram-engine  shared/accepted-wolfram-eula    boolean true
+EOF
+
+patch --no-backup-if-mismatch "${output_dir}/etc/dphys-swapfile" <<'EOF'
+@@ -13,7 +13,7 @@
+ 
+ # set size to absolute value, leaving empty (default) then uses computed value
+ #   you most likely don't want this, unless you have an special disk situation
+-#CONF_SWAPSIZE=
++CONF_SWAPSIZE=200
+ 
+ # set size to computed value, this times RAM size, dynamically adapts,
+ #   guarantees that there is enough swap without wasting disk space on excess
+EOF
+
+patch --no-backup-if-mismatch "${output_dir}/etc/inputrc" <<'EOF'
+@@ -65,3 +65,7 @@ $endif
+ # "\e[F": end-of-line
+ 
+ $endif
++
++# mappings for up and down arrows search history
++# "\e[B": history-search-forward
++# "\e[A": history-search-backward
+EOF
+
+patch --no-backup-if-mismatch "${output_dir}/etc/default/useradd" <<'EOF'
+@@ -5,7 +5,7 @@
+ # Similar to DHSELL in adduser. However, we use "sh" here because
+ # useradd is a low level utility and should be as general
+ # as possible
+-SHELL=/bin/sh
++SHELL=/bin/bash
+ #
+ # The default group for users
+ # 100=users on Debian systems
+@@ -29,7 +29,7 @@ SHELL=/bin/sh
+ # The SKEL variable specifies the directory containing "skeletal" user
+ # files; in other words, files such as a sample .profile that will be
+ # copied to the new user's home directory when it is created.
+-# SKEL=/etc/skel
++SKEL=/etc/skel
+ #
+ # Defines whether the mail spool should be created while
+ # creating the account
+EOF
+
+patch --no-backup-if-mismatch "${output_dir}/etc/profile" <<'EOF'
+@@ -4,7 +4,7 @@
+ if [ "`id -u`" -eq 0 ]; then
+   PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ else
+-  PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
++  PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games"
+ fi
+ export PATH
+
+EOF
+
+patch --no-backup-if-mismatch "${output_dir}/etc/login.defs" <<'EOF'
+@@ -100,7 +100,7 @@ HUSHLOGIN_FILE	.hushlogin
+ #
+ # (they are minimal, add the rest in the shell startup files)
+ ENV_SUPATH	PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+-ENV_PATH	PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games
++ENV_PATH        PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games
+ 
+ #
+ # Terminal permissions
+EOF
+
+rm -f "${output_dir}/etc/ssh/"ssh_host_*_key*
+
+umount "${output_dir}/tmp"
+umount "${output_dir}/proc"
+umount "${output_dir}/dev"

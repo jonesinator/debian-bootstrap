@@ -5,6 +5,27 @@
 # up.
 set -eu
 
+repack_initramfs() {
+    timestamp_="${1}"
+    file_path_="${2}"
+    temp_dir_="${3}"
+
+    if [ ! -e "${file_path_}" ]; then
+        return 0
+    fi
+
+    rm -rf "${temp_dir_}"
+    mkdir -p "${temp_dir_}/unpacked"
+    zstdcat "${file_path_}" | cpio -idmvD "${temp_dir_}/unpacked"
+    find "${temp_dir_}/unpacked" -exec touch -ht "${timestamp_}" {} +
+    (cd "${temp_dir_}/unpacked" && find . | sort |
+        cpio --reproducible -o -H newc > ../packed)
+    zstd -10 --long=22 --force -o "${file_path_}" "${temp_dir_}/packed"
+    rm -rf "${temp_dir_}"
+
+    unset timestamp_ file_path_ temp_dir_
+}
+
 # Removes unneeded files from the rootfs. They are removed primarily because
 # they are a source of non-reproducibility, and we are aiming for
 # reproducibility. Well, not full reproducibility with debootstrap, since it
@@ -89,10 +110,35 @@ cleanup () {
     # debootstrap creates this file to warn users that the journal exists. The
     # ./bootstrap script could create it, but prefer just removing it here.
     rm -rfv "${1}"/var/log/README
+
+    #
+    # RPI script
+    #
+    rm -rfv "${1}"/var/lib/dbus/machine-id
+    rm -rfv "${1}"/var/log/apt/*
+    rm -rfv "${1}"/etc/apparmor.d/local/usr.bin.man # TODO WHY??
+    rm -rfv "${1}"/etc/group-
+    rm -rfv "${1}"/etc/gshadow-
+    rm -rfv "${1}"/etc/passwd-
+    rm -rfv "${1}"/etc/shadow-
+    rm -rfv "${1}"/etc/fake-hwclock.data
+
+    # These files have embedded timestamps that we need to make the same in
+    # order to get reproducibility.
+    repack_initramfs 202401010000 "${1}"/boot/initrd.img-*-2712 tmp
+    repack_initramfs 202401010000 "${1}"/boot/firmware/initramfs_2712 tmp
+    repack_initramfs 202401010000 "${1}"/boot/initrd.img-*-v8 tmp
+    repack_initramfs 202401010000 "${1}"/boot/firmware/initramfs8 tmp
+
+    # These files can have their lines reordered without issue.
+    sort < "${1}"/etc/group   > tmp_file && mv tmp_file "${1}"/etc/group
+    sort < "${1}"/etc/gshadow > tmp_file && mv tmp_file "${1}"/etc/gshadow
+    sort < "${1}"/etc/passwd  > tmp_file && mv tmp_file "${1}"/etc/passwd
+    sort < "${1}"/etc/shadow  > tmp_file && mv tmp_file "${1}"/etc/shadow
 }
 
 # If we aren't running as root already, try to fake running as root using
-# unshare.
+# unshare. (Doesn't work!)
 if [ "$(id -u)" -ne "0" ]; then
     exec unshare --map-root-user --map-auto --mount --mount-proc --fork --pid \
         "${0}"
@@ -104,16 +150,14 @@ mkdir work
 cd work
 
 # Run both bootstrapping scripts.
-../bootstrap
-debootstrap --arch arm64 bookworm debian-theirs https://deb.debian.org/debian
+../bootstrap && ../bootstrap-rpi
+WORK_DIR="$(pwd)/pi-gen-work" ../pi-gen/build.sh
+mv pi-gen-work/stage2/rootfs pi-gen-debian
 
 # Run the same cleanup function on the output of both.
-cleanup debian-theirs
 cleanup debian
+cleanup pi-gen-debian
 
 # Compare them. We should get the same thing (other than timestamps).
-if ! diffoscope --exclude-directory-metadata=yes --text=diff.out \
-        debian debian-theirs; then
-    cat diff.out
-    exit 1
-fi
+# TODO make all the timestamps the same too.
+diffoscope --exclude-directory-metadata=yes debian pi-gen-debian
