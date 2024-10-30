@@ -45,6 +45,8 @@ jobs:
           name: bootstrap-cache.tar.gz
       - name: Run Bootstrap
         run: |
+          ls -hal
+          pwd
           sudo tar xf bootstrap-cache.tar.gz
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
