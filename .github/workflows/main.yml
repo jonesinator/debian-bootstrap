@@ -15,6 +15,7 @@ jobs:
         run: |
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
+            --env keyserver=none \
             --privileged \
             --volume "$(pwd)/cache:/cache" \
             --volume "$(pwd)/rootfs:/debian" \
@@ -48,6 +49,7 @@ jobs:
           sudo tar xf cache.tar.gz
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
+            --env keyserver=none \
             --net none \
             --privileged \
             --volume "$(pwd)/cache:/cache:ro" \
