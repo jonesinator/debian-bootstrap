@@ -1,13 +1,26 @@
-#FROM docker.io/library/debian:bookworm-slim as bootstrap
-#RUN apt-get update && apt-get install --yes --no-install-recommends debootstrap
-#ENTRYPOINT ["debootstrap", "bookworm", "/mnt/]
-#
+FROM docker.io/library/debian:bookworm-slim as bootstrap
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+      binutils \
+      ca-certificates \
+      dirmngr \
+      gpg \
+      gpg-agent \
+      wget \
+      xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+COPY bootstrap /usr/local/bin
+ENTRYPOINT ["bootstrap"]
+
 #FROM docker.io/library/debian:bookworm-slim as bootstrap-rpi
 #RUN apt-get update && apt-get install --yes --no-install-recommends debootstrap
 #ENTRYPOINT ["debootstrap", "bookworm", "/mnt/]
 
 FROM docker.io/library/debian:bookworm-slim as debootstrap
-RUN apt-get update && apt-get install --yes debootstrap
+RUN apt-get update \
+ && apt-get install --yes \
+      debootstrap \
+ && rm -rf /var/lib/apt/lists/*
 ENTRYPOINT ["debootstrap", "bookworm", "/out/rootfs", "https://deb.debian.org/debian"]
 
 FROM docker.io/library/debian:bookworm-slim as pi-gen

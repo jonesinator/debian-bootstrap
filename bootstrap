@@ -330,7 +330,7 @@ unpack_packages() {
     temp_dir_="${5}"
 
     output_dir_="$(pwd)/${output_}"
-    rm -rf "${output_dir_}" "${temp_dir_}"
+    rm -rf "${output_dir_}"/* "${temp_dir_}"
     mkdir -p "${output_dir_}" "${temp_dir_}"
     for file_ in $(echo "${packages_}" | sed -n 's/^Filename: //p'); do
       restore_="$(pwd)"

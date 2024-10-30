@@ -4,6 +4,31 @@ on:
     branches:
       - "main"
 jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - name: Run bootstrap
+        run: |
+          docker build --file Containerfile --target bootstrap --tag bootstrap .
+          docker run \
+            --privileged \
+            --volume "$(pwd)/cache:/cache" \
+            --volume "$(pwd)/rootfs:/debian" \
+            bootstrap
+          sudo tar czf rootfs.tar.gz rootfs
+          sudo tar czf cache.tar.gz cache
+      - name: Archive Root Filesystem
+        uses: actions/upload-artifact@v4
+        with:
+          path: rootfs.tar.gz
+          name: bootstrap.tar.gz
+      - name: Archive Cache
+        uses: actions/upload-artifact@v4
+        with:
+          path: cache.tar.gz
+          name: bootstrap-cache.tar.gz
   debootstrap:
     runs-on: ubuntu-latest
     steps:
@@ -14,24 +39,23 @@ jobs:
           docker build --file Containerfile --target debootstrap --tag debootstrap .
           docker run --privileged --volume "$(pwd):/out" debootstrap
           sudo tar czf rootfs.tar.gz rootfs
-          sudo chown $(id -u):$(id -g) rootfs.tar.gz
       - name: Archive Result
         uses: actions/upload-artifact@v4
         with:
           path: rootfs.tar.gz
           name: debootstrap.tar.gz
-  pi-gen:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - name: Run pi-gen
-        run: |
-          docker build --file Containerfile --target pi-gen --tag pi-gen .
-          docker run --privileged --volume "$(pwd)/deploy:/pi-gen/deploy" pi-gen
-          cp deploy/*.zip pi-gen.zip
-      - name: Archive Result
-        uses: actions/upload-artifact@v4
-        with:
-          path: pi-gen.zip
-          name: pi-gen.zip
+  #pi-gen:
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - uses: actions/checkout@v4
+  #    - uses: docker/setup-qemu-action@v3
+  #    - name: Run pi-gen
+  #      run: |
+  #        docker build --file Containerfile --target pi-gen --tag pi-gen .
+  #        docker run --privileged --volume "$(pwd)/deploy:/pi-gen/deploy" pi-gen
+  #        cp deploy/*.zip pi-gen.zip
+  #    - name: Archive Result
+  #      uses: actions/upload-artifact@v4
+  #      with:
+  #        path: pi-gen.zip
+  #        name: pi-gen.zip
