@@ -7,9 +7,11 @@ jobs:
   bootstrap:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - name: Run bootstrap
+      - name: Get Repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Run Bootstrap
         run: |
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
@@ -29,21 +31,49 @@ jobs:
         with:
           path: cache.tar.gz
           name: bootstrap-cache.tar.gz
-  debootstrap:
+  bootstrap-offline:
     runs-on: ubuntu-latest
+    needs: bootstrap
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - name: Run debootstrap
+      - name: Get Repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Get Cache
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-cache.tar.gz
+      - name: Run Bootstrap
         run: |
-          docker build --file Containerfile --target debootstrap --tag debootstrap .
-          docker run --privileged --volume "$(pwd):/out" debootstrap
+          sudo tar xf bootstrap-cache.tar.gz
+          docker build --file Containerfile --target bootstrap --tag bootstrap .
+          docker run \
+            --net none \
+            --privileged \
+            --volume "$(pwd)/cache:/cache:ro" \
+            --volume "$(pwd)/rootfs:/debian" \
+            bootstrap
           sudo tar czf rootfs.tar.gz rootfs
-      - name: Archive Result
+      - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
           path: rootfs.tar.gz
-          name: debootstrap.tar.gz
+          name: bootstrap-offline.tar.gz
+  #debootstrap:
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - uses: actions/checkout@v4
+  #    - uses: docker/setup-qemu-action@v3
+  #    - name: Run debootstrap
+  #      run: |
+  #        docker build --file Containerfile --target debootstrap --tag debootstrap .
+  #        docker run --privileged --volume "$(pwd):/out" debootstrap
+  #        sudo tar czf rootfs.tar.gz rootfs
+  #    - name: Archive Result
+  #      uses: actions/upload-artifact@v4
+  #      with:
+  #        path: rootfs.tar.gz
+  #        name: debootstrap.tar.gz
   #pi-gen:
   #  runs-on: ubuntu-latest
   #  steps:

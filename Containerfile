@@ -12,9 +12,21 @@ RUN apt-get update \
 COPY bootstrap /usr/local/bin
 ENTRYPOINT ["bootstrap"]
 
-#FROM docker.io/library/debian:bookworm-slim as bootstrap-rpi
-#RUN apt-get update && apt-get install --yes --no-install-recommends debootstrap
-#ENTRYPOINT ["debootstrap", "bookworm", "/mnt/]
+FROM docker.io/library/debian:bookworm-slim as bootstrap-rpi
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+      binutils \
+      ca-certificates \
+      cpio \
+      dirmngr \
+      gpg \
+      gpg-agent \
+      wget \
+      xz-utils \
+      zstd \
+ && rm -rf /var/lib/apt/lists/*
+COPY bootstrap-rpi /usr/local/bin
+ENTRYPOINT ["bootstrap-rpi"]
 
 FROM docker.io/library/debian:bookworm-slim as debootstrap
 RUN apt-get update \
