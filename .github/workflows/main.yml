@@ -29,9 +29,9 @@ jobs:
         run: |
           docker build --file Containerfile --target pi-gen --tag pi-gen .
           docker run --privileged --volume "$(pwd)/deploy:/pi-gen/deploy" pi-gen
-          sudo chown $(id -u):$(id -g) deploy/*.img pi-gen.img
+          mv deploy/*.zip pi-gen.zip
       - name: Archive Result
         uses: actions/upload-artifact@v4
         with:
-          path: pi-gen.img
-          name: pi-gen.img
+          path: pi-gen.zip
+          name: pi-gen.zip
