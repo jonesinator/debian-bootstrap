@@ -4,14 +4,17 @@ on:
     branches:
       - "main"
 jobs:
-  build:
+  debootstrap:
     runs-on: ubuntu-latest
     steps:
-      - name: Check Out Code.
-        uses: actions/checkout@v4
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      - name: Build Docker Image
-        run: docker build . --tag bootstrap --file Containerfile
-      - name: Run Docker Container
-        run: docker run --privileged bootstrap
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - name: Run Debootstrap
+        run: |
+          docker build --file Containerfile --target debootstrap --tag debootstrap .
+          docker run --privileged --volume "$(pwd):/out" debootstrap
+      - name: Archive Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: debootstrap
+          path: rootfs
