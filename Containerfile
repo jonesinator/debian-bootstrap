@@ -31,7 +31,7 @@ RUN apt-get update \
  && apt-get install --yes \
       debootstrap \
  && rm -rf /var/lib/apt/lists/*
-ENTRYPOINT ["debootstrap", "bookworm", "/out/rootfs", "https://deb.debian.org/debian"]
+ENTRYPOINT ["debootstrap", "--arch", "arm64", "bookworm", "/out/rootfs", "https://deb.debian.org/debian"]
 
 FROM docker.io/library/debian:bookworm-slim as pi-gen
 ADD https://github.com/RPi-Distro/pi-gen/archive/refs/tags/2024-10-22-raspios-bookworm-arm64.tar.gz .
