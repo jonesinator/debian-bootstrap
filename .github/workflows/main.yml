@@ -13,8 +13,10 @@ jobs:
         run: |
           docker build --file Containerfile --target debootstrap --tag debootstrap .
           docker run --privileged --volume "$(pwd):/out" debootstrap
+          sudo tar czf rootfs.tar.gz rootfs
+          sudo chown $(id -u):$(id -g) rootfs.tar.gz
       - name: Archive Result
         uses: actions/upload-artifact@v4
         with:
-          name: debootstrap
-          path: rootfs
+          path: rootfs.tar.gz
+          name: debootstrap.tar.gz
