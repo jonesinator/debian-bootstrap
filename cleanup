@@ -79,6 +79,18 @@ rm -rfv tmp/var/log/alternatives.log
 # ./bootstrap script could create it, but prefer just removing it here.
 rm -rfv tmp/var/log/README
 
+# Debootstrap updates these directory timestamps, but we do not. Touch them so
+# the timestamps get clamped below, otherwise that's a reproducibility issue.
+touch tmp/proc
+touch tmp/usr/lib/mime
+touch tmp/usr/lib/terminfo
+touch tmp/usr/libexec
+touch tmp/usr/share/bash-completion
+touch tmp/usr/share/lintian
+touch tmp/usr/share/locale/*
+touch tmp/usr/share/man/*
+touch tmp/var/lib/apt
+
 # Repackage 
 LC_ALL=C tar --create --gzip --file "${output}" --directory tmp . \
   --sort=name --numeric-owner --clamp-mtime --mtime=2024-10-01T00:00:00+00:00
