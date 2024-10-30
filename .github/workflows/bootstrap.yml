@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-      - name: Get Cache
+      - name: Restore Cache
         uses: actions/download-artifact@v4
         with:
           name: bootstrap-cache.tar.gz
@@ -76,7 +76,7 @@ jobs:
           docker build --file Containerfile --target debootstrap --tag debootstrap .
           docker run --privileged --volume "$(pwd):/out" debootstrap
           sudo tar czf debootstrap-rootfs.tar.gz rootfs
-      - name: Archive Result
+      - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
           path: debootstrap-rootfs.tar.gz
@@ -103,34 +103,24 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: debootstrap-rootfs.tar.gz
-      - name: Unpack Artifacts
+      - name: Unpack and Clean Artifacts
         run: |
           for artifact in bootstrap-rootfs bootstrap-offline-rootfs debootstrap-rootfs; do
             mkdir "${artifact}"
             sudo tar xzf "${artifact}.tar.gz" --strip-components 1 --directory "${artifact}"
             sudo ./cleanup "${artifact}.tar.gz" "${artifact}.clean.tar.gz"
           done
+      - name: Ensure Identical Artifacts
+        run: |
           sha256sum *-rootfs.clean.tar.gz
-          sha256sum *-rootfs.clean.tar.gz | cut -d' ' -f1 | sort | uniq -c
           if [ "$(sha256sum *-rootfs.clean.tar.gz | cut -d' ' -f1 | sort | uniq | wc -l)" -ne 1 ]; then
             echo "Mismatch detected!"
             sudo apt-get update
             sudo apt-get install --yes diffoscope
             diffoscope debootstrap-rootfs.clean.tar.gz bootstrap-rootfs.clean.tar.gz
           fi
-
-  #pi-gen:
-  #  runs-on: ubuntu-latest
-  #  steps:
-  #    - uses: actions/checkout@v4
-  #    - uses: docker/setup-qemu-action@v3
-  #    - name: Run pi-gen
-  #      run: |
-  #        docker build --file Containerfile --target pi-gen --tag pi-gen .
-  #        docker run --privileged --volume "$(pwd)/deploy:/pi-gen/deploy" pi-gen
-  #        cp deploy/*.zip pi-gen.zip
-  #    - name: Archive Result
-  #      uses: actions/upload-artifact@v4
-  #      with:
-  #        path: pi-gen.zip
-  #        name: pi-gen.zip
+      - name: Archive Cleaned Root Filesystem
+        uses: actions/upload-artifact@v4
+        with:
+          path: bootstrap-rootfs.clean.tar.gz
+          name: bootstrap-rootfs.clean.tar.gz
