@@ -114,8 +114,9 @@ jobs:
           sha256sum *-rootfs.clean.tar.gz | cut -d' ' -f1 | sort | uniq -c
           if [ "$(sha256sum *-rootfs.clean.tar.gz | cut -d' ' -f1 | sort | uniq -c | cut -d' ' -f1)" -ne 3 ]; then
             echo "Mismatch detected!"
-            sha256sum *-rootfs.clean.tar.gz
-            exit 1
+            sudo apt-get update
+            sudo apt-get install --yes diffoscope
+            diffoscope debootstrap-rootfs.clean.tar.gz bootstrap-rootfs.clean.tar.gz
           fi
 
   #pi-gen:
