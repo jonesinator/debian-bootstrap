@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
-      - name: Run Debootstrap
+      - name: Run debootstrap
         run: |
           docker build --file Containerfile --target debootstrap --tag debootstrap .
           docker run --privileged --volume "$(pwd):/out" debootstrap
@@ -20,3 +20,18 @@ jobs:
         with:
           path: rootfs.tar.gz
           name: debootstrap.tar.gz
+  pi-gen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - name: Run pi-gen
+        run: |
+          docker build --file Containerfile --target pi-gen --tag pi-gen .
+          docker run --privileged --volume "$(pwd)/deploy:/pi-gen/deploy" pi-gen
+          sudo chown $(id -u):$(id -g) deploy/*.img pi-gen.img
+      - name: Archive Result
+        uses: actions/upload-artifact@v4
+        with:
+          path: pi-gen.img
+          name: pi-gen.img
