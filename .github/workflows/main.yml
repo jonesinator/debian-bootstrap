@@ -105,16 +105,16 @@ jobs:
           name: debootstrap-rootfs.tar.gz
       - name: Unpack Artifacts
         run: |
-          for artifact in bootstrap-rootfs bootstrap-offline-rootfs debootstrap; do
+          for artifact in bootstrap-rootfs bootstrap-offline-rootfs debootstrap-rootfs; do
             mkdir "${artifact}"
             sudo tar xzf "${artifact}.tar.gz" --strip-components 1 --directory "${artifact}"
             sudo ./cleanup "${artifact}.tar.gz" "${artifact}.clean.tar.gz"
           done
-          sha256sum *.clean.tar.gz
-          sha256sum *.clean.tar.gz | cut -d' ' -f1 | sort | uniq -c
-          if [ "$(sha256sum *.clean.tar.gz | cut -d' ' -f1 | sort | uniq -c | cut -d' ' -f1)" -ne 3 ]; then
+          sha256sum *-rootfs.clean.tar.gz
+          sha256sum *-rootfs.clean.tar.gz | cut -d' ' -f1 | sort | uniq -c
+          if [ "$(sha256sum *-rootfs.clean.tar.gz | cut -d' ' -f1 | sort | uniq -c | cut -d' ' -f1)" -ne 3 ]; then
             echo "Mismatch detected!"
-            sha256sum *.clean.tar.gz
+            sha256sum *-rootfs.clean.tar.gz
             exit 1
           fi
 
