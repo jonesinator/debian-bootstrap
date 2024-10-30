@@ -4,6 +4,7 @@ on:
     branches:
       - "main"
 jobs:
+
   bootstrap:
     runs-on: ubuntu-latest
     steps:
@@ -20,18 +21,19 @@ jobs:
             --volume "$(pwd)/cache:/cache" \
             --volume "$(pwd)/rootfs:/debian" \
             bootstrap
-          sudo tar czf rootfs.tar.gz rootfs
-          sudo tar czf cache.tar.gz cache
+          sudo tar czf bootstrap-rootfs.tar.gz rootfs
+          sudo tar czf bootstrap-cache.tar.gz cache
       - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
-          path: rootfs.tar.gz
-          name: bootstrap.tar.gz
+          path: bootstrap-rootfs.tar.gz
+          name: bootstrap-rootfs.tar.gz
       - name: Archive Cache
         uses: actions/upload-artifact@v4
         with:
-          path: cache.tar.gz
+          path: bootstrap-cache.tar.gz
           name: bootstrap-cache.tar.gz
+
   bootstrap-offline:
     runs-on: ubuntu-latest
     needs: bootstrap
@@ -46,7 +48,7 @@ jobs:
           name: bootstrap-cache.tar.gz
       - name: Run Bootstrap
         run: |
-          sudo tar xf cache.tar.gz
+          sudo tar xf bootstrap-cache.tar.gz
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
             --env keyserver=none \
@@ -55,27 +57,67 @@ jobs:
             --volume "$(pwd)/cache:/cache:ro" \
             --volume "$(pwd)/rootfs:/debian" \
             bootstrap
-          sudo tar czf rootfs.tar.gz rootfs
+          sudo tar czf bootstrap-offline-rootfs.tar.gz rootfs
       - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
-          path: rootfs.tar.gz
-          name: bootstrap-offline.tar.gz
-  #debootstrap:
-  #  runs-on: ubuntu-latest
-  #  steps:
-  #    - uses: actions/checkout@v4
-  #    - uses: docker/setup-qemu-action@v3
-  #    - name: Run debootstrap
-  #      run: |
-  #        docker build --file Containerfile --target debootstrap --tag debootstrap .
-  #        docker run --privileged --volume "$(pwd):/out" debootstrap
-  #        sudo tar czf rootfs.tar.gz rootfs
-  #    - name: Archive Result
-  #      uses: actions/upload-artifact@v4
-  #      with:
-  #        path: rootfs.tar.gz
-  #        name: debootstrap.tar.gz
+          path: bootstrap-offline-rootfs.tar.gz
+          name: bootstrap-offline-rootfs.tar.gz
+
+  debootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Run debootstrap
+        run: |
+          docker build --file Containerfile --target debootstrap --tag debootstrap .
+          docker run --privileged --volume "$(pwd):/out" debootstrap
+          sudo tar czf debootstrap-rootfs.tar.gz rootfs
+      - name: Archive Result
+        uses: actions/upload-artifact@v4
+        with:
+          path: debootstrap-rootfs.tar.gz
+          name: debootstrap-rootfs.tar.gz
+
+  bootstrap-check:
+    runs-on: ubuntu-latest
+    needs:
+      - bootstrap
+      - bootstrap-offline
+      - debootstrap
+    steps:
+      - name: Get Repository
+        uses: actions/checkout@v4
+      - name: Get Bootstrap Rootfs
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-rootfs.tar.gz
+      - name: Get Bootstrap Offline Rootfs
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-offline-rootfs.tar.gz
+      - name: Get Debootstrap Rootfs
+        uses: actions/download-artifact@v4
+        with:
+          name: debootstrap-rootfs.tar.gz
+      - name: Unpack Artifacts
+        run: |
+          for artifact in bootstrap-rootfs bootstrap-offline-rootfs debootstrap; do
+            mkdir "${artifact}"
+            sudo tar xzf "${artifact}.tar.gz" --strip-components 1 --directory "${artifact}"
+            sudo ./cleanup "${artifact}.tar.gz" "${artifact}.clean.tar.gz"
+          done
+          sha256sum *.clean.tar.gz
+          sha256sum *.clean.tar.gz | cut -d' ' -f1 | sort | uniq -c
+          if [ "$(sha256sum *.clean.tar.gz | cut -d' ' -f1 | sort | uniq -c | cut -d' ' -f1)" -ne 3 ]; then
+            echo "Mismatch detected!"
+            sha256sum *.clean.tar.gz
+            exit 1
+          fi
+
   #pi-gen:
   #  runs-on: ubuntu-latest
   #  steps:

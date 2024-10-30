@@ -17,13 +17,11 @@ RUN apt-get update \
  && apt-get install --yes --no-install-recommends \
       binutils \
       ca-certificates \
-      cpio \
       dirmngr \
       gpg \
       gpg-agent \
       wget \
       xz-utils \
-      zstd \
  && rm -rf /var/lib/apt/lists/*
 COPY bootstrap-rpi /usr/local/bin
 ENTRYPOINT ["bootstrap-rpi"]

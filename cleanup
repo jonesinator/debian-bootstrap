@@ -1,0 +1,87 @@
+#!/bin/sh -eu
+
+# Parse command-line arguments.
+input="${1}"
+output="${2}"
+
+# Extract the input archive to a temporary directory.
+rm -rf tmp
+mkdir tmp
+tar --extract --strip-components 1 --directory tmp --file "${input}" 
+
+# The contents of dev are mostly decided by the Linux kernel, and can easily
+# be recreated when needed.
+rm -rfv tmp/dev/*
+
+# This is created in the bootstrap script, likely because we don't suppress
+# the daemon start/stop script like deboostrap. This is the only file that
+# results, though, and it can just be deleted.
+rm -rfv tmp/etc/apparmor.d/local/sbin.dhclient
+
+# A placeholder fstab is created by deboostrap with just a comment. The
+# bootstrap script could easily be updated to mimic this, but instead just
+# remove the file since it is usually clobbered later anyway.
+rm -rfv tmp/etc/fstab
+
+# debootstrap will copy /etc/hostname from the host, we get rid of it.
+rm -rfv tmp/etc/hostname
+
+# Both scripts generate this random ID. Remove it since it can easily be
+# regenerated later and is a source of non-reproducibility.
+rm -rfv tmp/etc/machine-id
+
+# This is just a symlink created by debootstrap but not the ./bootstrap
+# script. The ./bootstrap script could easily mimic that, but 
+rm -rfv tmp/etc/mtab
+
+# debootstrap will copy /etc/resolv.conf from the host, we get rid of it.
+rm -rfv tmp/etc/resolv.conf
+
+# debootstrap creates this. The ./bootstrap script could too, but it's not
+# needed so just get rid of it.
+rm -rfv tmp/root/.ssh
+
+# Both the ./bootstrap script and debootstrap leave some state files in
+# here. According to the Linux FHS, the /run directory is to be cleared each
+# boot, so it should be fine to remove its contents.
+# https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html
+rm -rfv tmp/run/*
+
+# Both the ./bootstrap script and debootstrap leave some files in here.
+# According to the Linux FHS, the application must be able to regenerate or
+# restore any data in the /var/cache directory, so it should be fine to
+# remove its contents.
+rm -rfv tmp/var/cache/*
+
+# Apt stores some downloaded files from the mirror here, but they can be
+# retreived again. The ./bootstrap script doesn't bother making them, and
+# since they can be recreated, it's easier to just remove them here.
+rm -rfv tmp/var/lib/apt/lists/*
+
+# This is a file used by dpkg to know what packages are available. The local
+# ./bootstrap script and debootstrap both generate basically the same file,
+# but the ordering is different. They could be made the same with some
+# effort, but this file is not actually essential and can be regenerated
+# from the package list, so it should be good to remove here.
+rm -rfv tmp/var/lib/dpkg/available
+
+# This is a file that can be used by dpkg for backup purposes, but is
+# generally not needed, especially on a just-bootstrapped system.
+rm -rfv tmp/var/lib/dpkg/status-old
+
+# These are log files that have timestamps which are a source of
+# non-reproducibility.
+rm -rfv tmp/var/log/bootstrap.log
+rm -rfv tmp/var/log/dpkg.log
+rm -rfv tmp/var/log/alternatives.log
+
+# debootstrap creates this file to warn users that the journal exists. The
+# ./bootstrap script could create it, but prefer just removing it here.
+rm -rfv tmp/var/log/README
+
+# Repackage 
+LC_ALL=C tar --create --gzip --file "${output}" --directory tmp . \
+  --sort=name --numeric-owner --clamp-mtime --mtime=2024-10-01T00:00:00+00:00
+
+# Clean up.
+rm -rf tmp
