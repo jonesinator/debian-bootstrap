@@ -6,6 +6,9 @@ rootfs_dir="${1}"
 # be recreated when needed.
 rm -rfv "${rootfs_dir}"/dev/*
 
+# May appear sometimes.
+rm -rfv "${rootfs_dir}"/etc/apparmor.d/local/sbin.dhclient
+
 # A placeholder fstab is created by deboostrap with just a comment. The
 # bootstrap script could easily be updated to mimic this, but instead just
 # remove the file since it is usually clobbered later anyway.
@@ -14,20 +17,12 @@ rm -rfv "${rootfs_dir}"/etc/fstab
 # debootstrap will copy /etc/hostname from the host, we get rid of it.
 rm -rfv "${rootfs_dir}"/etc/hostname
 
-# Both scripts generate this random ID. Remove it since it can easily be
-# regenerated later and is a source of non-reproducibility.
-rm -rfv "${rootfs_dir}"/etc/machine-id
-
-# This is just a symlink created by debootstrap but not the ./bootstrap
-# script. The ./bootstrap script could easily mimic that, but 
-rm -rfv "${rootfs_dir}"/etc/mtab
-
 # debootstrap will copy /etc/resolv.conf from the host, we get rid of it.
 rm -rfv "${rootfs_dir}"/etc/resolv.conf
 
-# debootstrap creates this. The ./bootstrap script could too, but it's not
-# needed so just get rid of it.
-rm -rfv "${rootfs_dir}"/root/.ssh
+# Both scripts generate this random ID. Remove it since it can easily be
+# regenerated later and is a source of non-reproducibility.
+rm -rfv "${rootfs_dir}"/etc/machine-id
 
 # Both the ./bootstrap script and debootstrap leave some state files in
 # here. According to the Linux FHS, the /run directory is to be cleared each
@@ -62,7 +57,3 @@ rm -rfv "${rootfs_dir}"/var/lib/dpkg/status-old
 rm -rfv "${rootfs_dir}"/var/log/bootstrap.log
 rm -rfv "${rootfs_dir}"/var/log/dpkg.log
 rm -rfv "${rootfs_dir}"/var/log/alternatives.log
-
-# debootstrap creates this file to warn users that the journal exists. The
-# ./bootstrap script could create it, but prefer just removing it here.
-rm -rfv "${rootfs_dir}"/var/log/README

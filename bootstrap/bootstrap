@@ -517,22 +517,14 @@ umount "${output_dir}/proc"
 
 ################################################################################
 # Reproducibility Cleanup                                                      #
-# TODO NARROW ME DOWN                                                          #
 ################################################################################
 
 # The contents of dev are mostly decided by the Linux kernel, and can easily
 # be recreated when needed.
 rm -rfv "${output_dir}"/dev/*
 
-# This is created in the bootstrap script, likely because we don't suppress
-# the daemon start/stop script like deboostrap. This is the only file that
-# results, though, and it can just be deleted.
+# May appear sometimes.
 rm -rfv "${output_dir}"/etc/apparmor.d/local/sbin.dhclient
-
-# A placeholder fstab is created by deboostrap with just a comment. The
-# bootstrap script could easily be updated to mimic this, but instead just
-# remove the file since it is usually clobbered later anyway.
-rm -rfv "${output_dir}"/etc/fstab
 
 # Both scripts generate this random ID. Remove it since it can easily be
 # regenerated later and is a source of non-reproducibility.
@@ -547,6 +539,11 @@ rm -rfv "${output_dir}"/run/*
 # restore any data in the /var/cache directory, so it should be fine to
 # remove its contents.
 rm -rfv "${output_dir}"/var/cache/*
+
+# According to the Linux FHS, the application must be able to regenerate or
+# restore any data in the /var/cache directory, so it should be fine to
+# remove its contents.
+rm -rfv "${output_dir}"/var/lib/apt/lists/*
 
 # This is a file used by dpkg to know what packages are available. The local
 # ./bootstrap script and debootstrap both generate basically the same file,
@@ -563,15 +560,3 @@ rm -rfv "${output_dir}"/var/lib/dpkg/status-old
 # non-reproducibility.
 rm -rfv "${output_dir}"/var/log/dpkg.log
 rm -rfv "${output_dir}"/var/log/alternatives.log
-
-# Debootstrap updates these directory timestamps, but we do not. Touch them so
-# the timestamps get clamped below, otherwise that's a reproducibility issue.
-touch "${output_dir}"/proc
-touch "${output_dir}"/usr/lib/mime
-touch "${output_dir}"/usr/lib/terminfo
-touch "${output_dir}"/usr/libexec
-touch "${output_dir}"/usr/share/bash-completion
-touch "${output_dir}"/usr/share/lintian
-touch "${output_dir}"/usr/share/locale/*
-touch "${output_dir}"/usr/share/man/*
-touch "${output_dir}"/var/lib/apt
