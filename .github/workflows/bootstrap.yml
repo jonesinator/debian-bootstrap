@@ -98,9 +98,11 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Run debootstrap
         run: |
-          docker build --file Containerfile --target bootstrap --tag bootstrap .
-          docker run --privileged --volume "$(pwd):/out" bootstrap
-          sudo ./bootstrap/cleanup-debootstrap rootfs
+          cd bootstrap
+          docker build --file Containerfile --target debootstrap \
+            --tag debootstrap .
+          docker run --privileged --volume "$(pwd):/out" debootstrap
+          sudo ./cleanup-debootstrap rootfs
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
           LC_ALL=C sudo tar --create --gzip --file ../debootstrap.tar.gz \
