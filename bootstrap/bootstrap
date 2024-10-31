@@ -522,56 +522,56 @@ umount "${output_dir}/proc"
 
 # The contents of dev are mostly decided by the Linux kernel, and can easily
 # be recreated when needed.
-rm -rfv tmp/dev/*
+rm -rfv "${output_dir}"/dev/*
 
 # This is created in the bootstrap script, likely because we don't suppress
 # the daemon start/stop script like deboostrap. This is the only file that
 # results, though, and it can just be deleted.
-rm -rfv tmp/etc/apparmor.d/local/sbin.dhclient
+rm -rfv "${output_dir}"/etc/apparmor.d/local/sbin.dhclient
 
 # A placeholder fstab is created by deboostrap with just a comment. The
 # bootstrap script could easily be updated to mimic this, but instead just
 # remove the file since it is usually clobbered later anyway.
-rm -rfv tmp/etc/fstab
+rm -rfv "${output_dir}"/etc/fstab
 
 # Both scripts generate this random ID. Remove it since it can easily be
 # regenerated later and is a source of non-reproducibility.
-rm -rfv tmp/etc/machine-id
+rm -rfv "${output_dir}"/etc/machine-id
 
 # According to the Linux FHS, the /run directory is to be cleared each boot, so
 # it should be fine to remove its contents.
 # https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html
-rm -rfv tmp/run/*
+rm -rfv "${output_dir}"/run/*
 
 # According to the Linux FHS, the application must be able to regenerate or
 # restore any data in the /var/cache directory, so it should be fine to
 # remove its contents.
-rm -rfv tmp/var/cache/*
+rm -rfv "${output_dir}"/var/cache/*
 
 # This is a file used by dpkg to know what packages are available. The local
 # ./bootstrap script and debootstrap both generate basically the same file,
 # but the ordering is different. They could be made the same with some
 # effort, but this file is not actually essential and can be regenerated
 # from the package list, so it should be good to remove here.
-rm -rfv tmp/var/lib/dpkg/available
+rm -rfv "${output_dir}"/var/lib/dpkg/available
 
 # This is a file that can be used by dpkg for backup purposes, but is
 # generally not needed, especially on a just-bootstrapped system.
-rm -rfv tmp/var/lib/dpkg/status-old
+rm -rfv "${output_dir}"/var/lib/dpkg/status-old
 
 # These are log files that have timestamps which are a source of
 # non-reproducibility.
-rm -rfv tmp/var/log/dpkg.log
-rm -rfv tmp/var/log/alternatives.log
+rm -rfv "${output_dir}"/var/log/dpkg.log
+rm -rfv "${output_dir}"/var/log/alternatives.log
 
 # Debootstrap updates these directory timestamps, but we do not. Touch them so
 # the timestamps get clamped below, otherwise that's a reproducibility issue.
-touch tmp/proc
-touch tmp/usr/lib/mime
-touch tmp/usr/lib/terminfo
-touch tmp/usr/libexec
-touch tmp/usr/share/bash-completion
-touch tmp/usr/share/lintian
-touch tmp/usr/share/locale/*
-touch tmp/usr/share/man/*
-touch tmp/var/lib/apt
+touch "${output_dir}"/proc
+touch "${output_dir}"/usr/lib/mime
+touch "${output_dir}"/usr/lib/terminfo
+touch "${output_dir}"/usr/libexec
+touch "${output_dir}"/usr/share/bash-completion
+touch "${output_dir}"/usr/share/lintian
+touch "${output_dir}"/usr/share/locale/*
+touch "${output_dir}"/usr/share/man/*
+touch "${output_dir}"/var/lib/apt
