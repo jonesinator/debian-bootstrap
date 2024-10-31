@@ -26,6 +26,7 @@ jobs:
             bootstrap
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          echo "Timestamp: ${timestamp}"
           LC_ALL=C sudo tar --create --gzip --file ../rootfs.tar.gz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
@@ -71,6 +72,7 @@ jobs:
             bootstrap
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          echo "Timestamp: ${timestamp}"
           LC_ALL=C sudo tar --create --gzip --file ../offline.tar.gz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
@@ -106,6 +108,7 @@ jobs:
           sudo ./cleanup-debootstrap rootfs
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          echo "Timestamp: ${timestamp}"
           LC_ALL=C sudo tar --create --gzip --file ../debootstrap.tar.gz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
