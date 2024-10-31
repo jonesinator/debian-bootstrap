@@ -331,12 +331,12 @@ unpack_packages() {
     temp_dir_="${5}"
 
     output_dir_="$(pwd)/${output_}"
-    rm -rf "${output_dir_}"/* "${temp_dir_}"
+    rm -rf "${output_dir_:?}"/* "${temp_dir_}"
     mkdir -p "${output_dir_}" "${temp_dir_}"
     for file_ in $(echo "${packages_}" | sed -n 's/^Filename: //p'); do
       restore_="$(pwd)"
       unpack_dir_="${temp_dir_}/$(basename "${file_}")"
-      full_path_="$(cache_path "${mirror}/${file_}" "${cache_dir_}")"
+      full_path_="$(cache_path "${mirror_}/${file_}" "${cache_dir_}")"
       mkdir -p "${unpack_dir_}"
       cp "${full_path_}" "${unpack_dir_}/package.deb"
       cd "${unpack_dir_}"
@@ -514,3 +514,64 @@ in_target "${output_dir}" \
 # Clean up.
 rm -rf "${output_dir}/cache"
 umount "${output_dir}/proc"
+
+################################################################################
+# Reproducibility Cleanup                                                      #
+# TODO NARROW ME DOWN                                                          #
+################################################################################
+
+# The contents of dev are mostly decided by the Linux kernel, and can easily
+# be recreated when needed.
+rm -rfv tmp/dev/*
+
+# This is created in the bootstrap script, likely because we don't suppress
+# the daemon start/stop script like deboostrap. This is the only file that
+# results, though, and it can just be deleted.
+rm -rfv tmp/etc/apparmor.d/local/sbin.dhclient
+
+# A placeholder fstab is created by deboostrap with just a comment. The
+# bootstrap script could easily be updated to mimic this, but instead just
+# remove the file since it is usually clobbered later anyway.
+rm -rfv tmp/etc/fstab
+
+# Both scripts generate this random ID. Remove it since it can easily be
+# regenerated later and is a source of non-reproducibility.
+rm -rfv tmp/etc/machine-id
+
+# According to the Linux FHS, the /run directory is to be cleared each boot, so
+# it should be fine to remove its contents.
+# https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html
+rm -rfv tmp/run/*
+
+# According to the Linux FHS, the application must be able to regenerate or
+# restore any data in the /var/cache directory, so it should be fine to
+# remove its contents.
+rm -rfv tmp/var/cache/*
+
+# This is a file used by dpkg to know what packages are available. The local
+# ./bootstrap script and debootstrap both generate basically the same file,
+# but the ordering is different. They could be made the same with some
+# effort, but this file is not actually essential and can be regenerated
+# from the package list, so it should be good to remove here.
+rm -rfv tmp/var/lib/dpkg/available
+
+# This is a file that can be used by dpkg for backup purposes, but is
+# generally not needed, especially on a just-bootstrapped system.
+rm -rfv tmp/var/lib/dpkg/status-old
+
+# These are log files that have timestamps which are a source of
+# non-reproducibility.
+rm -rfv tmp/var/log/dpkg.log
+rm -rfv tmp/var/log/alternatives.log
+
+# Debootstrap updates these directory timestamps, but we do not. Touch them so
+# the timestamps get clamped below, otherwise that's a reproducibility issue.
+touch tmp/proc
+touch tmp/usr/lib/mime
+touch tmp/usr/lib/terminfo
+touch tmp/usr/libexec
+touch tmp/usr/share/bash-completion
+touch tmp/usr/share/lintian
+touch tmp/usr/share/locale/*
+touch tmp/usr/share/man/*
+touch tmp/var/lib/apt

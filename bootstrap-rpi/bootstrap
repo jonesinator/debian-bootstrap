@@ -87,6 +87,184 @@ set -eu
 # on implicit things happening within functions.
 #
 
+# Executes a command in a target directory as the root directory.
+in_target() {
+    env -i PATH="/usr/bin:/usr/sbin" DEBIAN_FRONTEND=noninteractive chroot "${@}"
+}
+
+# Takes two lists as arguments, and removes any line in the second from the
+# first. The result is output on stdout.
+remove_from() {
+    printf "%s\n%s\n%s" "${1}" "${2}" "${2}" | sort | uniq -u
+}
+
+# Takes two lists of package infos as arguments and outputs the combined list to
+# stdout.
+concat_packages() {
+    printf "%s\n\n%s" "${1}" "${2}"
+}
+
+# Takes a list of package names on stdin, escapes them for use in regexes, and
+# outputs them on stdout.
+escape_package_names() {
+    sed 's|\+|\\+|g' | sed 's|\.|\\.|g'
+}
+
+# Takes a list of package infos on stdin and outputs just the value of the field
+# across all of the package infos in the list on stdout
+package_field() {
+    sed -n "s/^${1}: //p"
+}
+
+# Takes a set of package infos and filters them with awk and prints the results.
+# First the "field" of the package info is matched, e.g. "^Package$" or
+# "^(Filename|SHA256)$". Then the "value" at that field (not including the field
+# name) is matched using a different regex.
+#
+# For example:
+#     filter_packages "${packages}" "^Package$" "^(alpha|beta|gamma)$"
+# Would print just the package infos for packages exactly named "alpha", "beta",
+# or "gamma".
+#
+# This is rather slow, and fairly fragile since it is awk in sh, but it is
+# fairly powerful and is really the only record-level filtering function that we
+# need. This is the only non-trivial use of awk, so it would be good to replace
+# with some combination of sh/grep/sed to reduce the tool count.
+filter_packages() {
+    filter_packages_="${1}"
+    filter_field_="${2}"
+    filter_value_="${3}"
+
+    echo "${filter_packages_}" | awk -v RS= -v FS='\n' "{
+        for (i = 1; i <= NF; ++i) {
+            if (\$i ~ /^${filter_field_}: / &&
+                    substr(\$i, index(\$i, \" \") + 1) ~ /${filter_value_}/) {
+                print \$0 \"\\n\"
+                break
+            }
+        }
+    }"
+}
+
+# Take a list of package infos that may have duplicates and print just the
+# unique ones. The order of the incoming list is not preserved.
+unique_packages() {
+    packages_="${1}"
+
+    package_names_="$(echo "${1}" |
+        package_field "Package" | sort | uniq | escape_package_names)"
+    for package_ in ${package_names_}; do
+        filter_packages "${packages_}" "Package" "^${package_}$" | sed '/^$/q'
+    done
+}
+
+# Takes a list of package infos and regex for package names, and gets the path
+# to the .deb file for the package. The paths can only be used inside the target
+# chroot.
+deb_for_packages() {
+    filter_packages "${1}" "Package" "^${2}$" |
+        package_field "Filename" | sed "s|^|$(cache_path "${3}/" "/cache")/|"
+}
+
+# Gets the non-recursive list of dependencies for a set of packages. Prints just
+# new packages that the given set of packages depends on. If this function
+# succeeds and prints nothing, then you'll know you have all dependencies and
+# the set of packages is self-consistent. See "get_package_dependencies" for the
+# function that iterates over this function.
+get_direct_package_dependencies() {
+    direct_all_packages_="${1}"
+    direct_install_packages_="${2}"
+    direct_exclude_packages_="${3}"
+
+    direct_names_="$(echo "${direct_install_packages_}" |
+        package_field "Package")"
+    direct_depends_="$(echo "${direct_install_packages_}" |
+        package_field '\(Pre-\)\?Depends')"
+
+    # Gather the direct dependencies of the install package set. The sed
+    # operations convert comma-separated to line-separated, remove version
+    # constraints, select the first alternative for everything, and ignore any
+    # architecture specification.
+    direct_depends_all_="$(echo "${direct_depends_}" | sed 's/, /\n/g' |
+        sed 's/ (.*)//g' | sed 's/ |.*$//' | sed 's/:.*//' | sort | uniq)"
+    direct_dep_names_="$(remove_from \
+        "${direct_depends_all_}" "${direct_names_}" | escape_package_names)"
+
+    # Construct a regex like "(^| )(dep1|dep2|dep3)([ ,]|$)" which will match
+    # any of the dependency names in either the "Package" or "Provides" fields.
+    direct_inner_regex_="$(printf "%s" "${direct_dep_names_}" | tr '\n' '|')"
+    direct_regex_="$(printf "(^| )(%s)([ ,]|$)" "${direct_inner_regex_}")"
+
+    # Get all packages that might satisfy the dependencies, i.e. get the package
+    # info for any package whose "Package" or "Provides" field contains any of
+    # the dependency names.
+    direct_dep_candidates_="$(filter_packages \
+        "${direct_all_packages_}" "(Package|Provides)" "${direct_regex_}")"
+
+    # For each dependency select a package from all of the candidates.
+    direct_added_=""
+    for direct_dep_ in ${direct_dep_names_}; do
+        # If this dependency is excluded, nothing to do.
+        if echo "${direct_dep_}" | grep -qE "${direct_exclude_packages_}"; then
+            continue
+        fi
+
+        # If this dependency is already installed, there's nothing to do.
+        echo "${direct_added_}" | grep --quiet "${direct_dep_}" && continue
+
+        # Look for a package with the exact name. If one is found, use it.
+        direct_package_="$(filter_packages \
+            "${direct_dep_candidates_}" "Package" "^${direct_dep_}$")"
+        if [ -n "${direct_package_}" ]; then
+            printf "%s\n\n" "${direct_package_}"
+            direct_added_="${direct_dep_} ${direct_added_}"
+            continue
+        fi
+
+        # Look for a virtual package that has already been selected.
+        direct_candidates_="$(filter_packages "${direct_dep_candidates_}" \
+            "Provides" "(^| )${direct_dep_}([ ,]|$)")"
+        direct_candidate_names_="$(echo "${direct_candidates_}" |
+            sed -n 's/^Package: //p' | escape_package_names)"
+        direct_found_=0
+        for direct_candidate_ in ${direct_candidate_names_}; do
+            if printf "%s\n%s" "${direct_names_}" "${direct_added_}" |
+                    grep --quiet "${direct_candidate_}"; then
+                direct_found_=1
+                break
+            fi
+        done
+        if [ "${direct_found_}" -eq 1 ]; then continue; fi
+
+        # If there's exactly one candidate, then the choice is clear.
+        if [ "$(echo "${direct_candidate_names_}" | wc -l)" -eq 1 ]; then
+            printf "%s\n\n" "${direct_candidates_}"
+            direct_added_="${direct_candidate_names_} ${direct_added_}"
+            continue
+        fi
+
+        # Fortunately, we don't need anything more refined than the above at the
+        # moment...
+        echo "Unable to find package for ${direct_dep_}" 1>&2
+        exit 1
+    done
+}
+
+# Gets the full list of dependencies for a set of packages, including
+# dependencies of dependencies recursively. Prints both the original list of
+# packages that came in, and all of the dependencies of those packages.
+get_package_dependencies() {
+    all_="${1}"
+    packages_="${2}"
+    exclude_="${3}"
+
+    while deps_="$(get_direct_package_dependencies \
+            "${all_}" "${packages_}" "${exclude_}")" && [ -n "${deps_}" ]; do
+        packages_="$(concat_packages "${packages_}" "${deps_}")"
+    done
+    echo "${packages_}"
+}
+
 # Determines the path in the local cache to a file by its URL. Prints the path
 # to the file on stdout.
 cache_path() {
@@ -225,6 +403,57 @@ get_release_file() {
     unset download_path__d url__d file__d extension__d unpacked_hash__d
 }
 
+# Download the .deb archives for a set of packages to the cache directory.
+get_packages() {
+    mirror_="${1}"
+    packages_="${2}"
+    cache_dir_="${3}"
+
+    package_names_="$(echo "${packages_}" |
+        package_field "Package" | escape_package_names)"
+    for package_ in ${package_names_}; do
+        package_info_="$(filter_packages \
+            "${packages_}" "Package" "^${package_}$")"
+        path_="$(echo "${package_info_}" | package_field "Filename")"
+        sha256_="$(echo "${package_info_}" | package_field "SHA256")"
+        file_="$(download "${mirror_}/${path_}" "${cache_dir_}")"
+        echo "${sha256_}  ${file_}" | sha256sum -c --status
+    done
+}
+
+# Unpacks 
+unpack_packages() {
+    mirror_="${1}"
+    packages_="${2}"
+    cache_dir_="${3}"
+    output_="${4}"
+    temp_dir_="${5}"
+
+    output_dir_="$(pwd)/${output_}"
+    rm -rf "${output_dir_:?}"/* "${temp_dir_}"
+    mkdir -p "${output_dir_}" "${temp_dir_}"
+    for file_ in $(echo "${packages_}" | sed -n 's/^Filename: //p'); do
+      restore_="$(pwd)"
+      unpack_dir_="${temp_dir_}/$(basename "${file_}")"
+      full_path_="$(cache_path "${mirror_}/${file_}" "${cache_dir_}")"
+      mkdir -p "${unpack_dir_}"
+      cp "${full_path_}" "${unpack_dir_}/package.deb"
+      cd "${unpack_dir_}"
+      ar x package.deb
+      rm package.deb
+
+      mkdir control data
+      tar xf control.tar.* -C control
+      tar xf data.tar.* -C data
+      tar xf data.tar.* -C "${output_dir_}"
+      rm control.tar.* data.tar.*
+      cd data
+      md5sum -c --status ../control/md5sums
+
+      cd "${restore_}"
+    done
+}
+
 # Converts a package metadata file URL to the filename it should have in
 # /var/cache/apt. Prints the filename to stdout.
 url_to_apt_list() {
@@ -251,7 +480,7 @@ manual_apt_update() {
     temp_dir__f="${9}"
     out_dir__f="${10}"
     shift 10
-    files__f="${@}"
+    files__f="${*}"
 
     prefix__f="${url__f}/dists/${distribution__f}"
     release_data__f="$(get_release \
@@ -287,17 +516,14 @@ manual_apt_update() {
     unset files__f prefix__f release_data__f component__f file__f contents__f
 }
 
-in_target() {
-    env -i PATH="/usr/bin:/usr/sbin" DEBIAN_FRONTEND=noninteractive chroot "${@}"
-}
-
 manual_apt_install() {
     cache_dir__g="${1}"
     output_dir__g="${2}"
     command__g="${3}"
     shift 3
-    args__g="${@}"
+    args__g="${*}"
 
+    # shellcheck disable=SC2086
     infos__g="$(in_target "${output_dir__g}" apt-get -qq "${command__g}" --print-uris ${args__g})"
     echo "${infos__g}" | while IFS= read -r info__g; do
       uri__g="$(echo "${info__g}" | cut -d' ' -f1 | tr -d "\'")"
@@ -312,6 +538,7 @@ manual_apt_install() {
       mkdir -p "${output_dir}/var/cache/apt/archives"
       cp "${cache_path__g}" "${output_dir__g}/var/cache/apt/archives/${destination__g}"
     done
+    # shellcheck disable=SC2086
     in_target "${output_dir__g}" apt-get "${command__g}" --no-download --yes ${args__g}
 
     unset cache_dir__g output_dir__g command__g args__g infos__g uri__g
@@ -322,9 +549,163 @@ manual_apt_install() {
 # Main Script
 #
 
-if [ "$(id -u)" -ne "0" ]; then
-    exec unshare --map-root-user --map-auto --mount --mount-proc --fork --pid "${0}" "${@}"
+# Get the package metadata.
+release="$(get_release \
+    "${debian_mirror_url}" "${debian_mirror_distribution}" "${debian_mirror_key_url}" "${debian_mirror_keys}" "${debian_mirror_fingerprints}" \
+    "${keyserver}" "${cache_dir}" "${temp_dir}")"
+all_packages="$(get_release_file \
+    "${debian_mirror_url}" "${debian_mirror_distribution}" "${release}" \
+    "main/binary-${architecture}/Packages" "${cache_dir}" "${temp_dir}")"
+
+# Determine the "required" packages.
+priority_required_packages="$(filter_packages \
+    "${all_packages}" "Priority" "^required$")"
+additional_required_packages="$(filter_packages \
+    "${all_packages}" "Package" "${additional_required_packages_regex}")"
+direct_required_packages="$(concat_packages \
+    "${priority_required_packages}" "${additional_required_packages}")"
+required_packages="$(get_package_dependencies "${all_packages}" \
+    "${direct_required_packages}" "${exclude_packages_regex}")"
+
+# Determine the "base" packages.
+priority_important_packages="$(filter_packages \
+    "${all_packages}" "Priority" "^important$")"
+additional_base_packages="$(filter_packages \
+    "${all_packages}" "Package" "${additional_base_packages_regex}")"
+direct_base_packages="$(concat_packages \
+    "${priority_important_packages}" "${additional_base_packages}")"
+base_packages="$(get_package_dependencies \
+    "${all_packages}" "${direct_base_packages}" "${exclude_packages_regex}")"
+
+# Download all of the packages in the combined "required" and "base" set.
+install_packages_with_duplicates="$(concat_packages \
+    "${required_packages}" "${base_packages}")"
+install_packages="$(unique_packages "${install_packages_with_duplicates}")"
+get_packages "${debian_mirror_url}" "${install_packages}" "${cache_dir}"
+
+# Unpack just the "required" packages.
+rm -rf "${temp_dir}"
+mkdir "${temp_dir}"
+unpack_packages "${debian_mirror_url}" "${required_packages}" \
+    "${cache_dir}" "${output_dir}" "${temp_dir}"
+rm -rf "${temp_dir}"
+
+# Perform the usr directory merge.
+restore="$(pwd)"
+cd "${output_dir}"
+for dir in bin lib sbin; do
+    cp -r "${dir}"/* "usr/${dir}/"
+    rm -rf "${dir}"
+    ln -s "usr/${dir}" "${dir}"
+done
+if [ -e lib64 ]; then
+    mv lib64 usr/lib64
+    ln -s usr/lib64 lib64
 fi
+cd "${restore}"
+
+# Ensure a copy of all of the downloaded files is available within the target
+# filesystem.
+cp -r cache "${output_dir}/cache"
+
+# Need to mount proc otherwise some files are not created (presumably by
+# systemd-tmpfiles?)
+# TODO Move this as low as possible, and unmount it right after.
+mkdir -p "${output_dir}/proc"
+mount -t proc proc "${output_dir}/proc"
+
+# Install some early required packages. Put a temporary awk symlink in place
+# until we can install mawk. This ordering is taken from debootstrap, but no
+# reasoning is given for it.
+ln -sf mawk "${output_dir}/usr/bin/awk"
+for package in base-passwd base-files dpkg libc6; do
+    in_target "${output_dir}" dpkg --force-depends --install \
+        "$(deb_for_packages "${required_packages}" "${package}" "${debian_mirror_url}")"
+done
+rm "${output_dir}/usr/bin/awk"
+for package in mawk debconf; do
+    in_target "${output_dir}" dpkg --force-depends --install \
+        "$(deb_for_packages "${required_packages}" "${package}" "${debian_mirror_url}")"
+done
+
+# Now we can unpack then configure all required packages. The configure requires
+# the timezone to be set or there's an interactive prompt installing tzdata.
+# Assume UTC, it is the one true timezone.
+# shellcheck disable=SC2046
+in_target "${output_dir}" dpkg --force-depends --unpack \
+    $(deb_for_packages "${required_packages}" ".*" "${debian_mirror_url}")
+ln -sf /usr/share/zoneinfo/UTC "${output_dir}/etc/localtime"
+in_target "${output_dir}" \
+    dpkg --configure --pending --force-configure-any --force-depends
+
+# Configure some additional dpkg/apt files.
+echo "deb ${debian_mirror_url} ${debian_mirror_distribution} main" > "${output_dir}/etc/apt/sources.list"
+echo "apt apt" > "${output_dir}/var/lib/dpkg/cmethopt"
+chmod 644 "${output_dir}/var/lib/dpkg/cmethopt"
+
+echo "${install_packages}" > "${output_dir}/var/lib/dpkg/available"
+echo "${install_packages}" | package_field "Package" | sed 's/$/ install/' |
+    in_target "${output_dir}" dpkg --set-selections
+
+# Get the list of base packages that we haven't already installed.
+required_package_names="$(echo "${required_packages}" |
+    package_field "Package")"
+remaining_base_package_names="$(echo "${base_packages}" |
+    package_field "Package")"
+remaining_base_package_names="$(remove_from \
+    "${remaining_base_package_names}" "${required_package_names}")"
+
+# Install predeps that haven't yet been satisfied. Those predeps have
+# dependencies of their own that may not have been installed, and we need to
+# determine those manually. Unfortunately, we need to be careful not to call
+# dpkg "--install" on a package that has not already been installed, so we take
+# pains to track that. The install actually succeeds, but the only side-effect
+# is that the priorties of some packages mysteriously change. I'm not sure why
+# that is, but it causes a difference in the /var/lib/dpkg/status file from
+# debootstrap, so do the tracking here so we get the same binary result even
+# though a simpler algorithm is probably the same logical result here.
+installed_predeps=""
+while predep="$(in_target "${output_dir}" dpkg --predep-package)"; do
+    predep_dependencies="$(get_package_dependencies \
+        "${install_packages}" "${predep}" "${exclude_packages_regex}")"
+    predep_package_names_unfiltered="$(echo "${predep_dependencies}" |
+        package_field "Package")"
+    predep_package_names_without_required="$(remove_from \
+        "${predep_package_names_unfiltered}" "${required_package_names}")"
+    predep_package_names="$(remove_from \
+        "${predep_package_names_without_required}" "${installed_predeps}")"
+    predep_package_names_regex="^($(echo "${predep_package_names}" |
+        tr '\n' '|' | sed 's/^|//' | sed 's/|$//'))$"
+    predep_archives="$(deb_for_packages \
+        "${install_packages}" "${predep_package_names_regex}" "${debian_mirror_url}")"
+    # shellcheck disable=SC2086
+    in_target "${output_dir}" dpkg --force-overwrite --force-confold \
+        --skip-same-version --install ${predep_archives}
+    remaining_base_package_names="$(remove_from \
+        "${remaining_base_package_names}" "${predep_package_names}")"
+    installed_predeps="$(printf "%s\n%s" "${installed_predeps}" \
+        "${predep_package_names}")"
+done
+
+# Determine the set of packages remaining since we've installed all the predeps.
+remaining_regex="^($(echo "${remaining_base_package_names}" | tr '\n' '|'))$"
+remaining_base_packages="$(filter_packages \
+    "${base_packages}" "Package" "${remaining_regex}")"
+remaining_base_package_archives="$(deb_for_packages \
+    "${remaining_base_packages}" ".*" "${debian_mirror_url}")"
+
+# Now we can unpack and configure the rest of the "base" package set.
+# shellcheck disable=SC2086
+in_target "${output_dir}" dpkg --force-overwrite --force-confold \
+    --skip-same-version --unpack ${remaining_base_package_archives}
+in_target "${output_dir}" \
+    dpkg --force-confold --skip-same-version --configure -a
+
+# Clean up.
+rm -rf "${output_dir}/cache"
+umount "${output_dir}/proc"
+
+# END DEBOOTSTRAP
 
 cat << EOF > "${output_dir}/etc/apt/sources.list"
 deb ${debian_mirror_url} ${debian_mirror_distribution} ${debian_mirror_components}

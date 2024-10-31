@@ -1,0 +1,21 @@
+#!/bin/sh
+FROM docker.io/library/debian:bookworm-slim as bootstrap
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+      binutils \
+      ca-certificates \
+      dirmngr \
+      gpg \
+      gpg-agent \
+      wget \
+      xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+COPY bootstrap /usr/local/bin
+ENTRYPOINT ["bootstrap"]
+
+FROM docker.io/library/debian:bookworm-slim as debootstrap
+RUN apt-get update \
+ && apt-get install --yes \
+      debootstrap \
+ && rm -rf /var/lib/apt/lists/*
+ENTRYPOINT ["debootstrap", "--arch", "arm64", "bookworm", "/out/rootfs", "https://deb.debian.org/debian"]

@@ -1,10 +1,12 @@
-name: test
+name: Test Bootstrap
 on:
   push:
     branches:
       - "main"
 jobs:
-
+  # Runs the bootstrapping script from the repository, which should be
+  # equivalent to deboostrap. The cache of downloaded files and the generated
+  # root filesystem are uploaded as artifacts.
   bootstrap:
     runs-on: ubuntu-latest
     steps:
@@ -14,6 +16,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Run Bootstrap
         run: |
+          cd bootstrap
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
             --env keyserver=none \
@@ -21,19 +24,27 @@ jobs:
             --volume "$(pwd)/cache:/cache" \
             --volume "$(pwd)/rootfs:/debian" \
             bootstrap
-          sudo tar czf bootstrap-rootfs.tar.gz rootfs
-          sudo tar czf bootstrap-cache.tar.gz cache
+          timestamp="$(git log -1 --format=tformat:%cd \
+            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          LC_ALL=C sudo tar . --create --gzip --file ../rootfs.tar.gz \
+            --directory rootfs --sort name --numeric-owner \
+            --mtime "${timestamp}" --clamp-mtime
+          tar --create --gzip --file ../cache.tar.gz cache
       - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
-          path: bootstrap-rootfs.tar.gz
-          name: bootstrap-rootfs.tar.gz
+          path: rootfs.tar.gz
+          name: rootfs.tar.gz
       - name: Archive Cache
         uses: actions/upload-artifact@v4
         with:
-          path: bootstrap-cache.tar.gz
-          name: bootstrap-cache.tar.gz
+          path: cache.tar.gz
+          name: cache.tar.gz
 
+  # Runs the bootstrapping script from the repository again, but runs it
+  # offline, relying on the cached files downloaded in the previous job. The
+  # generated root filesystem is validated to be exactly the same as the one
+  # from the previous step.
   bootstrap-offline:
     runs-on: ubuntu-latest
     needs: bootstrap
@@ -45,10 +56,11 @@ jobs:
       - name: Restore Cache
         uses: actions/download-artifact@v4
         with:
-          name: bootstrap-cache.tar.gz
-      - name: Run Bootstrap
+          name: cache.tar.gz
+      - name: Run Offline Bootstrap
         run: |
-          sudo tar xf bootstrap-cache.tar.gz
+          cd bootstrap
+          sudo tar --extract --gzip --file ../cache.tar.gz
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
             --env keyserver=none \
@@ -57,15 +69,28 @@ jobs:
             --volume "$(pwd)/cache:/cache:ro" \
             --volume "$(pwd)/rootfs:/debian" \
             bootstrap
-          sudo tar czf bootstrap-offline-rootfs.tar.gz rootfs
-      - name: Archive Root Filesystem
-        uses: actions/upload-artifact@v4
+          timestamp="$(git log -1 --format=tformat:%cd \
+            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          LC_ALL=C sudo tar . --create --gzip --file ../offline.tar.gz \
+            --directory rootfs --sort name --numeric-owner \
+            --mtime "${timestamp}" --clamp-mtime
+      - name: Get Original Bootstrap Rootfs
+        uses: actions/download-artifact@v4
         with:
-          path: bootstrap-offline-rootfs.tar.gz
-          name: bootstrap-offline-rootfs.tar.gz
+          name: rootfs.tar.gz
+      - name: Ensure Identical Artifacts
+        run: |
+          if ! diff rootfs.tar.gz offline.tar.gz; then
+            sudo apt-get update
+            sudo apt-get install --yes diffoscope
+            diffoscope rootfs.tar.gz offline.tar.gz
+          fi
 
+  # Runs debootstrap (the "control" in this "experiment"), and uploads the
+  # generated root filesystem as an artifact.
   debootstrap:
     runs-on: ubuntu-latest
+    needs: bootstrap
     steps:
       - name: Get Repository
         uses: actions/checkout@v4
@@ -73,54 +98,22 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Run debootstrap
         run: |
-          docker build --file Containerfile --target debootstrap --tag debootstrap .
-          docker run --privileged --volume "$(pwd):/out" debootstrap
-          sudo tar czf debootstrap-rootfs.tar.gz rootfs
-      - name: Archive Root Filesystem
-        uses: actions/upload-artifact@v4
-        with:
-          path: debootstrap-rootfs.tar.gz
-          name: debootstrap-rootfs.tar.gz
-
-  bootstrap-check:
-    runs-on: ubuntu-latest
-    needs:
-      - bootstrap
-      - bootstrap-offline
-      - debootstrap
-    steps:
-      - name: Get Repository
-        uses: actions/checkout@v4
-      - name: Get Bootstrap Rootfs
+          docker build --file Containerfile --target bootstrap --tag bootstrap .
+          docker run --privileged --volume "$(pwd):/out" bootstrap
+          sudo ./bootstrap/cleanup-debootstrap rootfs
+          timestamp="$(git log -1 --format=tformat:%cd \
+            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          LC_ALL=C sudo tar . --create --gzip --file ../debootstrap.tar.gz \
+            --directory rootfs --sort name --numeric-owner \
+            --mtime "${timestamp}" --clamp-mtime
+      - name: Get Original Bootstrap Rootfs
         uses: actions/download-artifact@v4
         with:
-          name: bootstrap-rootfs.tar.gz
-      - name: Get Bootstrap Offline Rootfs
-        uses: actions/download-artifact@v4
-        with:
-          name: bootstrap-offline-rootfs.tar.gz
-      - name: Get Debootstrap Rootfs
-        uses: actions/download-artifact@v4
-        with:
-          name: debootstrap-rootfs.tar.gz
-      - name: Unpack and Clean Artifacts
-        run: |
-          for artifact in bootstrap-rootfs bootstrap-offline-rootfs debootstrap-rootfs; do
-            mkdir "${artifact}"
-            sudo tar xzf "${artifact}.tar.gz" --strip-components 1 --directory "${artifact}"
-            sudo ./cleanup "${artifact}.tar.gz" "${artifact}.clean.tar.gz"
-          done
+          name: rootfs.tar.gz
       - name: Ensure Identical Artifacts
         run: |
-          sha256sum *-rootfs.clean.tar.gz
-          if [ "$(sha256sum *-rootfs.clean.tar.gz | cut -d' ' -f1 | sort | uniq | wc -l)" -ne 1 ]; then
-            echo "Mismatch detected!"
+          if ! diff rootfs.tar.gz debootstrap.tar.gz; then
             sudo apt-get update
             sudo apt-get install --yes diffoscope
-            diffoscope debootstrap-rootfs.clean.tar.gz bootstrap-rootfs.clean.tar.gz
+            diffoscope rootfs.tar.gz debootstrap.tar.gz
           fi
-      - name: Archive Cleaned Root Filesystem
-        uses: actions/upload-artifact@v4
-        with:
-          path: bootstrap-rootfs.clean.tar.gz
-          name: bootstrap-rootfs.clean.tar.gz
