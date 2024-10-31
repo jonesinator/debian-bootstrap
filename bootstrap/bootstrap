@@ -561,7 +561,7 @@ rm -rfv "${output_dir}"/var/lib/dpkg/status-old
 rm -rfv "${output_dir}"/var/log/dpkg.log
 rm -rfv "${output_dir}"/var/log/alternatives.log
 
-# Debootstrap updates these directories timestamps, but we don't, not sure why.
+# Ensure some timestamps are updated.
 touch "${output_dir}"/proc
 touch "${output_dir}"/usr/lib/mime
 touch "${output_dir}"/usr/lib/terminfo
