@@ -26,9 +26,9 @@ jobs:
             bootstrap
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar . --create --gzip --file ../rootfs.tar.gz \
+          LC_ALL=C sudo tar --create --gzip --file ../rootfs.tar.gz \
             --directory rootfs --sort name --numeric-owner \
-            --mtime "${timestamp}" --clamp-mtime
+            --mtime "${timestamp}" --clamp-mtime .
           tar --create --gzip --file ../cache.tar.gz cache
       - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
@@ -71,9 +71,9 @@ jobs:
             bootstrap
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar . --create --gzip --file ../offline.tar.gz \
+          LC_ALL=C sudo tar --create --gzip --file ../offline.tar.gz \
             --directory rootfs --sort name --numeric-owner \
-            --mtime "${timestamp}" --clamp-mtime
+            --mtime "${timestamp}" --clamp-mtime .
       - name: Get Original Bootstrap Rootfs
         uses: actions/download-artifact@v4
         with:
@@ -103,9 +103,9 @@ jobs:
           sudo ./bootstrap/cleanup-debootstrap rootfs
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar . --create --gzip --file ../debootstrap.tar.gz \
+          LC_ALL=C sudo tar --create --gzip --file ../debootstrap.tar.gz \
             --directory rootfs --sort name --numeric-owner \
-            --mtime "${timestamp}" --clamp-mtime
+            --mtime "${timestamp}" --clamp-mtime .
       - name: Get Original Bootstrap Rootfs
         uses: actions/download-artifact@v4
         with:
