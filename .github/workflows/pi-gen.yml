@@ -1,0 +1,60 @@
+name: Test Raspberry Pi Bootstrap
+on:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Run Bootstrap
+        run: |
+          cd bootstrap-rpi
+          docker build --file Containerfile --target bootstrap --tag bootstrap .
+          docker run \
+            --env keyserver=none \
+            --privileged \
+            --volume "$(pwd)/cache:/cache" \
+            --volume "$(pwd)/rootfs:/debian" \
+            bootstrap
+          timestamp="$(git log -1 --format=tformat:%cd \
+            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          echo "Timestamp: ${timestamp}"
+          LC_ALL=C sudo tar --create --gzip --file ../rootfs.tar.gz \
+            --directory rootfs --sort name --numeric-owner \
+            --mtime "${timestamp}" --clamp-mtime .
+          tar --create --gzip --file ../cache.tar.gz cache
+      - name: Archive Root Filesystem
+        uses: actions/upload-artifact@v4
+        with:
+          path: rootfs.tar.gz
+          name: rootfs.tar.gz
+      - name: Archive Cache
+        uses: actions/upload-artifact@v4
+        with:
+          path: cache.tar.gz
+          name: cache.tar.gz
+
+  # TODO OFFLINE
+
+  pi-gen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - name: Run pi-gen
+        run: |
+          cd bootstrap-rpi
+          docker build --file Containerfile --target pi-gen --tag pi-gen .
+          docker run --privileged --volume "$(pwd)/deploy:/pi-gen/deploy" pi-gen
+          # TODO CLEAN
+          cp deploy/*.zip ../pi-gen.zip
+      - name: Archive Result
+        uses: actions/upload-artifact@v4
+        with:
+          path: pi-gen.zip

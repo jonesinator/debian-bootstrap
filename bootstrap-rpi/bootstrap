@@ -548,6 +548,7 @@ manual_apt_install() {
 #
 # Main Script
 #
+# BEGIN DEBOOTSTRAP
 
 # Get the package metadata.
 release="$(get_release \
@@ -705,8 +706,65 @@ in_target "${output_dir}" \
 rm -rf "${output_dir}/cache"
 umount "${output_dir}/proc"
 
+################################################################################
+# Reproducibility Cleanup                                                      #
+################################################################################
+
+# The contents of dev are mostly decided by the Linux kernel, and can easily
+# be recreated when needed.
+rm -rfv "${output_dir}"/dev/*
+
+# May appear sometimes.
+rm -rfv "${output_dir}"/etc/apparmor.d/local/sbin.dhclient
+
+# Both scripts generate this random ID. Remove it since it can easily be
+# regenerated later and is a source of non-reproducibility.
+rm -rfv "${output_dir}"/etc/machine-id
+
+# According to the Linux FHS, the /run directory is to be cleared each boot, so
+# it should be fine to remove its contents.
+# https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html
+rm -rfv "${output_dir}"/run/*
+
+# According to the Linux FHS, the application must be able to regenerate or
+# restore any data in the /var/cache directory, so it should be fine to
+# remove its contents.
+rm -rfv "${output_dir}"/var/cache/*
+
+# According to the Linux FHS, the application must be able to regenerate or
+# restore any data in the /var/cache directory, so it should be fine to
+# remove its contents.
+rm -rfv "${output_dir}"/var/lib/apt/lists/*
+
+# This is a file used by dpkg to know what packages are available. The local
+# ./bootstrap script and debootstrap both generate basically the same file,
+# but the ordering is different. They could be made the same with some
+# effort, but this file is not actually essential and can be regenerated
+# from the package list, so it should be good to remove here.
+rm -rfv "${output_dir}"/var/lib/dpkg/available
+
+# This is a file that can be used by dpkg for backup purposes, but is
+# generally not needed, especially on a just-bootstrapped system.
+rm -rfv "${output_dir}"/var/lib/dpkg/status-old
+
+# These are log files that have timestamps which are a source of
+# non-reproducibility.
+rm -rfv "${output_dir}"/var/log/dpkg.log
+rm -rfv "${output_dir}"/var/log/alternatives.log
+
+# Ensure some timestamps are updated.
+touch "${output_dir}"/proc
+touch "${output_dir}"/usr/lib/mime
+touch "${output_dir}"/usr/lib/terminfo
+touch "${output_dir}"/usr/libexec
+touch "${output_dir}"/usr/share/bash-completion
+touch "${output_dir}"/usr/share/lintian
+touch "${output_dir}"/usr/share/locale/*
+touch "${output_dir}"/usr/share/man/*
+touch "${output_dir}"/var/lib/apt
 # END DEBOOTSTRAP
 
+# BEGIN PI-GEN
 cat << EOF > "${output_dir}/etc/apt/sources.list"
 deb ${debian_mirror_url} ${debian_mirror_distribution} ${debian_mirror_components}
 deb ${debian_security_mirror_url}/ ${debian_security_mirror_distribution} ${debian_security_mirror_components}
@@ -1216,3 +1274,4 @@ rm -f "${output_dir}/etc/ssh/"ssh_host_*_key*
 umount "${output_dir}/tmp"
 umount "${output_dir}/proc"
 umount "${output_dir}/dev"
+# END PI-GEN
