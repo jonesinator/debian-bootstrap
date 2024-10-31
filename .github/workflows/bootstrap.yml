@@ -80,6 +80,7 @@ jobs:
           name: rootfs.tar.gz
       - name: Ensure Identical Artifacts
         run: |
+          sha256sum rootfs.tar.gz offline.tar.gz
           if ! diff rootfs.tar.gz offline.tar.gz; then
             sudo apt-get update
             sudo apt-get install --yes diffoscope
@@ -114,6 +115,7 @@ jobs:
           name: rootfs.tar.gz
       - name: Ensure Identical Artifacts
         run: |
+          sha256sum rootfs.tar.gz debootstrap.tar.gz
           if ! diff rootfs.tar.gz debootstrap.tar.gz; then
             sudo apt-get update
             sudo apt-get install --yes diffoscope
