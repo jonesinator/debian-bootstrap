@@ -4,11 +4,18 @@ RUN apt-get update \
       binutils \
       ca-certificates \
       dirmngr \
+      dosfstools \
+      e2fsprogs \
       gpg \
       gpg-agent \
+      parted \
       patch \
+      rsync \
+      udev \
       wget \
+      xxd \
       xz-utils \
+      zerofree \
  && rm -rf /var/lib/apt/lists/*
 COPY bootstrap /usr/local/bin
 ENTRYPOINT ["bootstrap"]

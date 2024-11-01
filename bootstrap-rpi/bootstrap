@@ -1298,11 +1298,21 @@ parted --script "${image_file}" unit B mkpart primary ext4 \
     "${root_start}" "$((root_start + root_size - 1))"
 image_id="$(dd if="${image_file}" skip=44 bs=1 count=4 | xxd -e | cut -d' ' -f2)"
 
-loop_device="$(losetup --show --find --partscan "${image_file}")"
+loop_device="$(losetup --find)"
 boot_device="${loop_device}p1"
 root_device="${loop_device}p2"
-until -b "${boot_device}"; do echo "Waiting for boot device." && sleep 1; done
-until -b "${root_device}"; do echo "Waiting for root device." && sleep 1; done
+if [ ! -b "${loop_device}" ]; then
+    mknod "${loop_device}" b 7 "$(echo "${loop_device}" | sed 's/[^0-9]*//g')"
+fi
+losetup --partscan "${loop_device}" "${image_file}"
+for device in "${boot_device}" "${root_device}"; do
+    if [ ! -b "${device}" ]; then
+        devnum="$(lsblk -n -p -r -o "NAME,MAJ:MIN" "${loop_device}" | sed -n "s|^${device} ||p")"
+        major="$(echo "${devnum}" | cut -f1 -d:)"
+        minor="$(echo "${devnum}" | cut -f2 -d:)"
+        mknod "${device}" b "${major}" "${minor}"
+    fi
+done
 mkdosfs -n bootfs -F 32 -s 4 -v "${boot_device}"
 mkfs.ext4 -L rootfs -F -O "^64bit,^huge_file" "${root_device}"
 
