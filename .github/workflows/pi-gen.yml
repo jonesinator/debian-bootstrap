@@ -3,7 +3,9 @@ on:
   push:
     branches:
       - "main"
-
+    paths:
+      - bootstrap-rpi/**
+      - .github/workflows/pi-gen.yml
 jobs:
   bootstrap:
     runs-on: ubuntu-latest
@@ -20,28 +22,19 @@ jobs:
             --env keyserver=none \
             --privileged \
             --volume "$(pwd)/cache:/cache" \
-            --volume "$(pwd)/rootfs:/debian" \
+            --volume "$(pwd):/deploy" \
             bootstrap
-          timestamp="$(git log -1 --format=tformat:%cd \
-            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          echo "Timestamp: ${timestamp}"
-          LC_ALL=C sudo tar --create --gzip --file ../rootfs.tar.gz \
-            --directory rootfs --sort name --numeric-owner \
-            --mtime "${timestamp}" --clamp-mtime .
           tar --create --gzip --file ../cache.tar.gz cache
-      - name: Archive Root Filesystem
+      - name: Archive Image
         uses: actions/upload-artifact@v4
         with:
-          path: rootfs.tar.gz
-          name: rootfs.tar.gz
+          path: raspios.img
+          name: raspios.img
       - name: Archive Cache
         uses: actions/upload-artifact@v4
         with:
           path: cache.tar.gz
           name: cache.tar.gz
-
-  # TODO OFFLINE
-
   pi-gen:
     runs-on: ubuntu-latest
     steps:
@@ -52,9 +45,8 @@ jobs:
           cd bootstrap-rpi
           docker build --file Containerfile --target pi-gen --tag pi-gen .
           docker run --privileged --volume "$(pwd)/deploy:/pi-gen/deploy" pi-gen
-          # TODO CLEAN
-          cp deploy/*.zip ../pi-gen.zip
-      - name: Archive Result
+          cp deploy/*.xz ../pi-gen.xz
+      - name: Archive Image
         uses: actions/upload-artifact@v4
         with:
-          path: pi-gen.zip
+          path: pi-gen.xz

@@ -1,9 +1,6 @@
 #!/bin/sh
 set -eu
 
-# Overall configuration.
-: "${architecture:="arm64"}"
-
 # Debian mirror configuration.
 : "${debian_mirror_url:="http://deb.debian.org/debian"}"
 : "${debian_mirror_distribution:="bookworm"}"
@@ -53,6 +50,7 @@ set -eu
 : "${cache_dir:="./cache"}"
 : "${temp_dir:="./tmp"}"
 : "${output_dir:="./debian"}"
+: "${image_file:="deploy/raspios.img"}"
 
 #
 # Functions
@@ -556,7 +554,7 @@ release="$(get_release \
     "${keyserver}" "${cache_dir}" "${temp_dir}")"
 all_packages="$(get_release_file \
     "${debian_mirror_url}" "${debian_mirror_distribution}" "${release}" \
-    "main/binary-${architecture}/Packages" "${cache_dir}" "${temp_dir}")"
+    "main/binary-arm64/Packages" "${cache_dir}" "${temp_dir}")"
 
 # Determine the "required" packages.
 priority_required_packages="$(filter_packages \
@@ -796,7 +794,7 @@ manual_apt_update \
     "${cache_dir}" \
     "${temp_dir}" \
     "${output_dir}/var/lib/apt/lists" \
-    "binary-${architecture}/Packages" "i18n/Translation-en"
+    "binary-arm64/Packages" "i18n/Translation-en"
 
 manual_apt_update \
     "${debian_updates_mirror_url}" \
@@ -809,7 +807,7 @@ manual_apt_update \
     "${cache_dir}" \
     "${temp_dir}" \
     "${output_dir}/var/lib/apt/lists" \
-    "binary-${architecture}/Packages" "i18n/Translation-en"
+    "binary-arm64/Packages" "i18n/Translation-en"
 
 manual_apt_update \
     "${debian_security_mirror_url}" \
@@ -822,7 +820,7 @@ manual_apt_update \
     "${cache_dir}" \
     "${temp_dir}" \
     "${output_dir}/var/lib/apt/lists" \
-    "binary-${architecture}/Packages" "i18n/Translation-en"
+    "binary-arm64/Packages" "i18n/Translation-en"
 
 manual_apt_update \
     "${rpi_mirror_url}" \
@@ -835,7 +833,7 @@ manual_apt_update \
     "${cache_dir}" \
     "${temp_dir}" \
     "${output_dir}/var/lib/apt/lists" \
-    "binary-${architecture}/Packages"
+    "binary-arm64/Packages"
 
 # unshare unfriendly :(
 mount -t tmpfs nodev "${output_dir}/tmp"
@@ -1274,4 +1272,80 @@ rm -f "${output_dir}/etc/ssh/"ssh_host_*_key*
 umount "${output_dir}/tmp"
 umount "${output_dir}/proc"
 umount "${output_dir}/dev"
-# END PI-GEN
+# END PI-GEN STAGE 2
+
+# BEGIN PI-GEN EXPORT
+align="$((4 * 1024 * 1024))"
+boot_size="$((512 * 1024 * 1024))"
+root_extra="$((200 * 1024 * 1024))"
+
+root_size="$(du -x --apparent-size -s "${output_dir}" --exclude boot/firmware \
+    --exclude var/cache/apt/archives --block-size=1 | cut -f 1)"
+root_margin="$((root_size * 2 / 10 + root_extra))"
+
+boot_start="${align}"
+boot_size="$(((boot_size + align - 1) / align * align))"
+root_start="$((boot_start + boot_size))"
+root_size="$(((root_size + root_margin + align - 1) / align * align))"
+image_size="$((boot_start + boot_size + root_size))"
+
+mkdir -p "$(dirname "${image_file}")"
+truncate -s "${image_size}" "${image_file}"
+parted --script "${image_file}" mklabel msdos
+parted --script "${image_file}" unit B mkpart primary fat32 \
+    "${boot_start}" "$((boot_start + boot_size - 1))"
+parted --script "${image_file}" unit B mkpart primary ext4 \
+    "${root_start}" "$((root_start + root_size - 1))"
+image_id="$(dd if="${image_file}" skip=44 bs=1 count=4 | xxd -e | cut -d' ' -f2)"
+
+loop_device="$(losetup --show --find --partscan "${image_file}")"
+boot_device="${loop_device}p1"
+root_device="${loop_device}p2"
+until -b "${boot_device}"; do echo "Waiting for boot device." && sleep 1; done
+until -b "${root_device}"; do echo "Waiting for root device." && sleep 1; done
+mkdosfs -n bootfs -F 32 -s 4 -v "${boot_device}"
+mkfs.ext4 -L rootfs -F -O "^64bit,^huge_file" "${root_device}"
+
+rm -rf "${temp_dir}"
+mkdir "${temp_dir}"
+mount "${root_device}" "${temp_dir}"
+mkdir -p "${temp_dir}"/boot/firmware
+mount "${boot_device}" "${temp_dir}"/boot/firmware
+
+rsync -aHAXx --exclude /var/cache/apt/archives --exclude boot/firmware \
+    "${output_dir}/" "${temp_dir}/"
+rsync -rtx "${output_dir}/boot/firmware/" "${temp_dir}/boot/firmware"
+
+in_target "${temp_dir}" sh -c 'SUDO_USER=pi rename-user -f -s'
+
+echo "nameserver 8.8.8.8" > "${temp_dir}/etc/resolv.conf"
+
+sed -i "s/BOOTDEV/PARTUUID=${image_id}-01/" "${temp_dir}/etc/fstab"
+sed -i "s/ROOTDEV/PARTUUID=${image_id}-02/" "${temp_dir}/etc/fstab"
+sed -i "s/ROOTDEV/PARTUUID=${image_id}-02/" "${temp_dir}/boot/firmware/cmdline.txt"
+
+sed -i 's/^update_initramfs=.*/update_initramfs=all/' \
+    "${temp_dir}/etc/initramfs-tools/update-initramfs.conf"
+in_target "${temp_dir}" update-initramfs -k all -c
+in_target "${temp_dir}" /etc/init.d/fake-hwclock stop
+in_target "${temp_dir}" hardlink -t /usr/share/doc
+
+rm -fv "${temp_dir}/etc/passwd-"
+rm -fv "${temp_dir}/etc/group-"
+rm -fv "${temp_dir}/etc/shadow-"
+rm -fv "${temp_dir}/etc/gshadow-"
+rm -fv "${temp_dir}/etc/subuid-"
+rm -fv "${temp_dir}/etc/subgid-"
+rm -fv "${temp_dir}"/var/cache/debconf/*-old
+rm -fv "${temp_dir}"/var/lib/dpkg/*-old
+rm -fv "${temp_dir}/var/lib/dbus/machine-id"
+touch "${temp_dir}/etc/machine-id"
+ln -nsf /proc/mounts "${temp_dir}/etc/mtab"
+find "${temp_dir}/var/log/" -type f -exec cp /dev/null {} \;
+
+umount "${temp_dir}/boot/firmware"
+umount "${temp_dir}"
+zerofree "${root_device}"
+losetup --detach "${loop_device}"
+xz --compress --force --threads 0 --memlimit-compress=50% -6 "${image_file}"
+# END PI-GEN EXPORT
