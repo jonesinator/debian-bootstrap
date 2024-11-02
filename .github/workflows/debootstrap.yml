@@ -150,3 +150,47 @@ jobs:
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: artifacts/*
+  build-deps:
+    runs-on: ubuntu-latest
+    needs:
+      - attestation
+    steps:
+      - name: Get Repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Restore Rootfs
+        uses: actions/download-artifact@v4
+        with:
+          name: rootfs.tar.xz
+      - name: Restore Cache
+        uses: actions/download-artifact@v4
+        with:
+          name: cache.tar.xz
+      - name: Ensure Identical Artifacts
+        run: |
+          cd bootstrap
+          sudo tar --extract --xz --file ../cache.tar.xz
+          sudo tar --extract --xz --file ../rootfs.tar.gz
+          sudo ./build-deps
+          timestamp="$(git log -1 --format=tformat:%cd \
+            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          LC_ALL=C sudo tar --create --xz --file ../build-rootfs.tar.xz \
+            --directory rootfs --sort name --numeric-owner \
+            --mtime "${timestamp}" --clamp-mtime .
+          tar --create --xz --file ../build-deps-cache.tar.xz cache
+      - name: Archive Cache
+        uses: actions/upload-artifact@v4
+        with:
+          path: build-deps-cache.tar.xz
+          name: build-deps-cache.tar.xz
+      - name: Archive Root Filesystem
+        uses: actions/upload-artifact@v4
+        with:
+          path: build-rootfs.tar.xz
+          name: build-rootfs.tar.xz
+      - name: Archive Packages List
+        uses: actions/upload-artifact@v4
+        with:
+          path: all-packages
+          name: all-packages

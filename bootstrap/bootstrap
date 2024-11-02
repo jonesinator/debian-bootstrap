@@ -9,7 +9,7 @@
 # Mirror configuration.
 : "${mirror:="https://deb.debian.org/debian"}"
 : "${distribution:="bookworm"}"
-: "${architecture:="arm64"}"
+: "${architecture:="amd64"}"
 : "${key_url:="https://ftp-master.debian.org/keys"}"
 : "${keys:="archive-key-11.asc archive-key-12.asc release-12.asc"}"
 : "${keyserver:="hkps://keyserver.ubuntu.com"}"
