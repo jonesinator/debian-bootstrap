@@ -167,11 +167,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: cache.tar.xz
-      - name: Ensure Identical Artifacts
+      - name: Run Build Deps
         run: |
           cd bootstrap
           sudo tar --extract --xz --file ../cache.tar.xz
-          sudo tar --extract --xz --file ../rootfs.tar.gz
+          sudo tar --extract --xz --file ../rootfs.tar.xz
           sudo ./build-deps
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
