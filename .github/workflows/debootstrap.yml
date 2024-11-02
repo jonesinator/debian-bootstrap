@@ -171,7 +171,8 @@ jobs:
         run: |
           cd bootstrap
           sudo tar --extract --xz --file ../cache.tar.xz
-          sudo tar --extract --xz --file ../rootfs.tar.xz
+          mkdir rootfs
+          sudo tar --extract --xz --file ../rootfs.tar.xz --directory rootfs
           sudo ./build-deps
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
