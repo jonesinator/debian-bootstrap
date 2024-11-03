@@ -37,9 +37,10 @@ cache_path() {
     url__="${1}"
     cache_dir__="${2}"
 
-    host__="$(echo "${url__}" | sed 's|^https?://||' | cut -d/ -f1)"
-    file_path__="$(echo "${url__}" | sed 's|^https?://||' | cut -d/ -f2-)"
-    echo "${cache_dir__}/${host__}/${file_path__}"
+    protocol__="$(echo "${url__}" | cut -f1 -d:)"
+    host__="$(echo "${url__}" | sed 's|^https\?://||' | cut -d/ -f1)"
+    file_path__="$(echo "${url__}" | sed 's|^https\?://||' | cut -d/ -f2-)"
+    echo "${cache_dir__}/${protocol__}/${host__}/${file_path__}"
 }
 
 download() {
@@ -384,12 +385,17 @@ direct_required_packages="$(concat_packages \
 required_packages="$(get_package_dependencies "${all_packages}" \
     "${direct_required_packages}" "${exclude_packages_regex}")"
 
-# Should also add ca-certificates if the mirror url starts with https.
+# Determine the "base" packages.
 case "${variant}" in
     standard) direct_base_packages="$(filter_packages "${all_packages}" "Priority" "^important$")"            ;;
     buildd)   direct_base_packages="$(filter_packages "${all_packages}" "Package" "^(apt|build-essential)$")" ;;
     minbase)  direct_base_packages="$(filter_packages "${all_packages}" "Package" "^apt$")"                   ;;
 esac
+case "${mirror}" in
+    https://*) extra_base_packages="$(filter_packages "${all_packages}" "Package" "^ca-certificates$")" ;;
+    *) extra_base_packages="" ;;
+esac
+direct_base_packages="$(concat_packages "${direct_base_packages}" "${extra_base_packages}")"
 base_packages="$(get_package_dependencies \
     "${all_packages}" "${direct_base_packages}" "${exclude_packages_regex}")"
 

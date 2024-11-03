@@ -14,6 +14,9 @@ jobs:
         architecture:
           - amd64
           - arm64
+        protocol:
+          - http
+          - https
         variant:
           - standard
           - buildd
@@ -29,7 +32,7 @@ jobs:
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
             --env architecture=${{ matrix.architecture }} \
-            --env keyserver=none \
+            --env mirror=${{ matrix.protocol }}://deb.debian.org/debian \
             --env variant=${{ matrix.variant }} \
             --privileged \
             --volume "$(pwd)/cache:/cache" \
@@ -37,20 +40,20 @@ jobs:
             bootstrap
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create --xz --file ../rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz \
+          LC_ALL=C sudo tar --create --xz --file ../rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
-          tar --create --xz --file ../cache-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz cache
+          tar --create --xz --file ../cache-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz cache
       - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
-          path: rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
-          name: rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          path: rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          name: rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
       - name: Archive Cache
         uses: actions/upload-artifact@v4
         with:
-          path: cache-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
-          name: cache-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          path: cache-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          name: cache-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
   bootstrap-offline:
     runs-on: ubuntu-latest
     needs: bootstrap
@@ -59,6 +62,9 @@ jobs:
         architecture:
           - amd64
           - arm64
+        protocol:
+          - http
+          - https
         variant:
           - standard
           - buildd
@@ -71,15 +77,15 @@ jobs:
       - name: Restore Cache
         uses: actions/download-artifact@v4
         with:
-          name: cache-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          name: cache-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
       - name: Run Offline Bootstrap
         run: |
           cd bootstrap
-          sudo tar --extract --xz --file ../cache-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          sudo tar --extract --xz --file ../cache-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
             --env architecture=${{ matrix.architecture }} \
-            --env keyserver=none \
+            --env mirror=${{ matrix.protocol }}://deb.debian.org/debian \
             --env variant=${{ matrix.variant }} \
             --net none \
             --privileged \
@@ -88,20 +94,20 @@ jobs:
             bootstrap
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create --xz --file ../offline-${{ matrix.variant }}.tar.xz \
+          LC_ALL=C sudo tar --create --xz --file ../offline-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
       - name: Get Original Bootstrap Rootfs
         uses: actions/download-artifact@v4
         with:
-          name: rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          name: rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
       - name: Ensure Identical Artifacts
         run: |
-          sha256sum rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz offline-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
-          if ! diff rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz offline-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz; then
+          sha256sum rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz offline-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          if ! diff rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz offline-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz; then
             sudo apt-get update
             sudo apt-get install --yes diffoscope
-            diffoscope rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz offline-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+            diffoscope rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz offline-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
           fi
   debootstrap:
     runs-on: ubuntu-latest
@@ -111,6 +117,9 @@ jobs:
         architecture:
           - amd64
           - arm64
+        protocol:
+          - http
+          - https
         variant:
           - standard
           - buildd
@@ -126,28 +135,28 @@ jobs:
           docker build --file Containerfile --target debootstrap \
             --tag debootstrap .
           case "${{ matrix.variant }}" in
-              standard) docker run --privileged --volume "$(pwd):/out" debootstrap --arch ${{ matrix.architecture }}                                bookworm /out/rootfs ;;
-              buildd)   docker run --privileged --volume "$(pwd):/out" debootstrap --arch ${{ matrix.architecture }} --merged-usr --variant=buildd  bookworm /out/rootfs ;;
-              minbase)  docker run --privileged --volume "$(pwd):/out" debootstrap --arch ${{ matrix.architecture }}              --variant=minbase bookworm /out/rootfs ;;
+              standard) docker run --privileged --volume "$(pwd):/out" debootstrap --arch ${{ matrix.architecture }}                                bookworm /out/rootfs ${{ matrix.protocol }}://deb.debian.org/debian ;;
+              buildd)   docker run --privileged --volume "$(pwd):/out" debootstrap --arch ${{ matrix.architecture }} --merged-usr --variant=buildd  bookworm /out/rootfs ${{ matrix.protocol }}://deb.debian.org/debian ;;
+              minbase)  docker run --privileged --volume "$(pwd):/out" debootstrap --arch ${{ matrix.architecture }}              --variant=minbase bookworm /out/rootfs ${{ matrix.protocol }}://deb.debian.org/debian ;;
               *) echo "Bad variant." && exit 1 ;;
           esac
           sudo ./cleanup-debootstrap rootfs
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create --xz --file ../debootstrap-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz \
+          LC_ALL=C sudo tar --create --xz --file ../debootstrap-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
       - name: Get Original Bootstrap Rootfs
         uses: actions/download-artifact@v4
         with:
-          name: rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          name: rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
       - name: Ensure Identical Artifacts
         run: |
-          sha256sum rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz debootstrap-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
-          if ! diff rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz debootstrap-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz; then
+          sha256sum rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz debootstrap-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+          if ! diff rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz debootstrap-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz; then
             sudo apt-get update
             sudo apt-get install --yes diffoscope
-            diffoscope rootfs-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz debootstrap-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
+            diffoscope rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz debootstrap-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
           fi
   # SKIP FOR NOW
   #attestation:
