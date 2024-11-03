@@ -291,15 +291,41 @@ unmount_all() {
 # Main Script
 #
 
-rm -rf debs
-mkdir debs
-for package in $(cat all-packages | tr "\n" " "); do
+start="bash"
+skip="apache-opennlp bash"
+
+started=0
+mkdir -p debs
+for source_package in $(find "${cache_dir}" -name "*.dsc" | xargs -I {} basename {} | cut -f1 -d_ | sort | uniq); do
+    if [ "${started}" -eq "0" ]; then
+        if [ "${source_package}" = "${start}" ]; then
+            started=1
+        else
+            echo "${source_package} STOPPED" >> trace
+            continue
+        fi
+    fi
+
+    should_skip=0
+    for pkg in ${skip}; do
+        if [ "${source_package}" = "${pkg}" ]; then
+            echo "${source_package} SKIP" >> trace
+            should_skip=1
+            break
+        fi
+    done
+    if [ "${should_skip}" -eq 1 ]; then
+        continue
+    fi
+
+    echo "${source_package}" >> trace
+
     unmount_all
     cp -r "${output_dir}" "${output_dir}.bak"
     mount_all
 
-    manual_apt_install "${cache_dir}" "${output_dir}" /var/cache/apt/archives build-dep "${package}"
-    manual_apt_install "${cache_dir}" "${output_dir}" /build source "${package}"
+    manual_apt_install "${cache_dir}" "${output_dir}" /var/cache/apt/archives build-dep "${source_package}"
+    manual_apt_install "${cache_dir}" "${output_dir}" /build source "${source_package}"
     in_target "${output_dir}" sh -c 'cd "$(find /build -maxdepth 1 -mindepth 1 -type d)" && DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -us -uc'
     mv "${output_dir}/build/"*.deb debs
 
