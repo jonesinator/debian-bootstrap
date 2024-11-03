@@ -59,7 +59,7 @@ download() {
     url__b="${1}"
     cache_dir__b="${2}"
 
-    wget -nc "${url__b}" \
+    wget --tries 5 --waitretry 30 -nv -nc "${url__b}" \
         -P "$(dirname "$(cache_path "${url__b}" "${cache_dir__b}")")"
     cache_path "${url__b}" "${cache_dir__b}"
 
