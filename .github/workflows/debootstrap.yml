@@ -41,6 +41,7 @@ jobs:
           docker build --file Containerfile --target bootstrap --tag bootstrap .
           docker run \
             --env architecture=${{ matrix.architecture }} \
+            --env distribution=${{ matrix.distribution }} \
             --env mirror=${{ matrix.protocol }}://deb.debian.org/debian \
             --env variant=${{ matrix.variant }} \
             --privileged \
