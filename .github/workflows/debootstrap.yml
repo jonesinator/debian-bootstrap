@@ -24,6 +24,7 @@ jobs:
         run: |
           cd bootstrap
           docker build --file Containerfile --target bootstrap --tag bootstrap .
+          echo AARON1
           docker run \
             --env keyserver=none \
             --env variant=${{ matrix.variant }} \
@@ -31,12 +32,16 @@ jobs:
             --volume "$(pwd)/cache:/cache" \
             --volume "$(pwd)/rootfs:/debian" \
             bootstrap
+          echo AARON2
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          echo AARON3
           LC_ALL=C sudo tar --create --xz --file ../rootfs-${{ matrix.variant }}.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
+          echo AARON4
           tar --create --xz --file ../cache-${{ matrix.variant }}.tar.xz cache
+          echo AARON5
       - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
