@@ -1,13 +1,11 @@
 #!/bin/sh -eu
-# In theory, equivalent to:
-#   debootstrap bookworm debian https://deb.debian.org/debian
 
 ################################################################################
 # Configuration                                                                #
 ################################################################################
 
 # Mirror configuration.
-: "${mirror:="https://deb.debian.org/debian"}"
+: "${mirror:="http://deb.debian.org/debian"}"
 : "${distribution:="bookworm"}"
 : "${architecture:="amd64"}"
 : "${key_url:="https://ftp-master.debian.org/keys"}"
@@ -17,15 +15,19 @@
                    "B8B80B5B623EAB6AD8775C45B7C5D7D6350947F8"
                    "4D64FEC119C2029067D6E791F8D2585B8783D481"}"
 
-# Special package configuration.
-: "${exclude_packages_regex="^usrmerge$"}"
-: "${additional_required_packages_regex:="^usr-is-merged$"}"
-: "${additional_base_packages_regex:="^ca-certificates$"}"
+# Bootstrap configuration.
+: "${variant="standard"}"
 
 # Local directory configuration.
 : "${cache_dir:="./cache"}"
 : "${temp_dir:="./tmp"}"
 : "${output_dir:="./debian"}"
+
+# Validate the variant.
+case "${variant}" in
+    standard|buildd|minbase) ;;
+    *) echo "Invalid variant ${variant}." && exit 1 ;;
+esac
 
 ################################################################################
 # Functions                                                                    #
@@ -367,7 +369,12 @@ all_packages="$(get_release_file \
     "${mirror}" "${distribution}" "${release}" \
     "main/binary-${architecture}/Packages" "${cache_dir}" "${temp_dir}")"
 
-# Determine the "required" packages.
+# Force the usr merge.
+exclude_packages_regex="^usrmerge$"
+additional_required_packages_regex="^usr-is-merged$"
+
+# Determine the "required" packages. Note, trixie and later buildd use
+# Essential: yes and mawk rather than required packages.
 priority_required_packages="$(filter_packages \
     "${all_packages}" "Priority" "^required$")"
 additional_required_packages="$(filter_packages \
@@ -377,13 +384,12 @@ direct_required_packages="$(concat_packages \
 required_packages="$(get_package_dependencies "${all_packages}" \
     "${direct_required_packages}" "${exclude_packages_regex}")"
 
-# Determine the "base" packages.
-priority_important_packages="$(filter_packages \
-    "${all_packages}" "Priority" "^important$")"
-additional_base_packages="$(filter_packages \
-    "${all_packages}" "Package" "${additional_base_packages_regex}")"
-direct_base_packages="$(concat_packages \
-    "${priority_important_packages}" "${additional_base_packages}")"
+# Should also add ca-certificates if the mirror url starts with https.
+case "${variant}" in
+    standard) direct_base_packages="$(filter_packages "${all_packages}" "Priority" "^important$")"            ;;
+    buildd)   direct_base_packages="$(filter_packages "${all_packages}" "Package" "^(apt|build-essential)$")" ;;
+    minbase)  direct_base_packages="$(filter_packages "${all_packages}" "Package" "^apt$")"                   ;;
+esac
 base_packages="$(get_package_dependencies \
     "${all_packages}" "${direct_base_packages}" "${exclude_packages_regex}")"
 
@@ -498,16 +504,19 @@ while predep="$(in_target "${output_dir}" dpkg --predep-package)"; do
 done
 
 # Determine the set of packages remaining since we've installed all the predeps.
-remaining_regex="^($(echo "${remaining_base_package_names}" | tr '\n' '|'))$"
+remaining_regex="^($(echo "${remaining_base_package_names}" | escape_package_names | tr '\n' '|'))$"
 remaining_base_packages="$(filter_packages \
     "${base_packages}" "Package" "${remaining_regex}")"
 remaining_base_package_archives="$(deb_for_packages \
     "${remaining_base_packages}" ".*" "${mirror}")"
 
 # Now we can unpack and configure the rest of the "base" package set.
-# shellcheck disable=SC2086
-in_target "${output_dir}" dpkg --force-overwrite --force-confold \
-    --skip-same-version --unpack ${remaining_base_package_archives}
+if [ -n "${remaining_base_package_archives}" ]; then
+    # shellcheck disable=SC2086
+    in_target "${output_dir}" dpkg --force-overwrite --force-confold \
+        --skip-same-version --unpack ${remaining_base_package_archives}
+fi
+
 in_target "${output_dir}" \
     dpkg --force-confold --skip-same-version --configure -a
 
