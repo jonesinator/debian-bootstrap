@@ -18,4 +18,4 @@ RUN apt-get update \
  && apt-get install --yes \
       debootstrap \
  && rm -rf /var/lib/apt/lists/*
-ENTRYPOINT ["debootstrap", "--arch", "amd64", "bookworm", "/out/rootfs", "https://deb.debian.org/debian"]
+ENTRYPOINT ["debootstrap"]
