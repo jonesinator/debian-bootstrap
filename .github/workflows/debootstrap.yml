@@ -17,6 +17,7 @@ jobs:
         architecture:
           - amd64
           - arm64
+          - riscv64
         variant:
           - standard
           - buildd
@@ -24,6 +25,9 @@ jobs:
         protocol:
           - http
           - https
+        exclude:
+          - distribution: bookworm
+            architecture: riscv64
     env:
       prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
     steps:
@@ -70,6 +74,7 @@ jobs:
   #        architecture:
   #          - amd64
   #          - arm64
+  #          - riscv64
   #        variant:
   #          - standard
   #          - buildd
@@ -77,6 +82,9 @@ jobs:
   #        protocol:
   #          - http
   #          - https
+  #        exclude:
+  #          - distribution: bookworm
+  #            architecture: riscv64
   #    env:
   #      prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
   #    steps:
@@ -131,6 +139,7 @@ jobs:
   #        architecture:
   #          - amd64
   #          - arm64
+  #          - riscv64
   #        variant:
   #          - standard
   #          - buildd
@@ -138,6 +147,9 @@ jobs:
   #        protocol:
   #          - http
   #          - https
+  #        exclude:
+  #          - distribution: bookworm
+  #            architecture: riscv64
   #    env:
   #      prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
   #    steps:
