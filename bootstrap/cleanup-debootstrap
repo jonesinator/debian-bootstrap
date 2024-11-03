@@ -59,6 +59,11 @@ rm -rfv "${rootfs_dir}"/var/log/dpkg.log
 rm -rfv "${rootfs_dir}"/var/log/alternatives.log
 
 # Ensure some timestamps are updated.
+touch "${output_dir}"/usr/share
+touch "${output_dir}"/usr/share/doc
+touch "${output_dir}"/usr/share/locale
+touch "${output_dir}"/usr/share/man
+touch "${output_dir}"/usr/share/perl5
 touch "${rootfs_dir}"/usr/lib/mime
 touch "${rootfs_dir}"/usr/lib/terminfo
 touch "${rootfs_dir}"/usr/share/bash-completion

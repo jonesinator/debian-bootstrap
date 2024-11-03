@@ -573,8 +573,13 @@ touch "${output_dir}"/proc
 touch "${output_dir}"/usr/lib/mime
 touch "${output_dir}"/usr/lib/terminfo
 touch "${output_dir}"/usr/libexec
+touch "${output_dir}"/usr/share
 touch "${output_dir}"/usr/share/bash-completion
+touch "${output_dir}"/usr/share/doc
 touch "${output_dir}"/usr/share/lintian
+touch "${output_dir}"/usr/share/locale
 touch "${output_dir}"/usr/share/locale/*
+touch "${output_dir}"/usr/share/man
 touch "${output_dir}"/usr/share/man/*
+touch "${output_dir}"/usr/share/perl5
 touch "${output_dir}"/var/lib/apt
