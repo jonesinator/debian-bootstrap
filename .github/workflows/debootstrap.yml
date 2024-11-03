@@ -24,8 +24,8 @@ jobs:
           - standard
           - buildd
           - minbase
-      env:
-        prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
+    env:
+      prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
     steps:
       - name: Get Repository
         uses: actions/checkout@v4
