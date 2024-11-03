@@ -23,6 +23,12 @@
 : "${temp_dir:="./tmp"}"
 : "${output_dir:="./debian"}"
 
+# Validate the distribution.
+case "${distribution}" in
+    bookworm|trixie) ;;
+    *) echo "Invalid distribution ${variant}." && exit 1 ;;
+esac
+
 # Validate the variant.
 case "${variant}" in
     standard|buildd|minbase) ;;
@@ -370,20 +376,22 @@ all_packages="$(get_release_file \
     "${mirror}" "${distribution}" "${release}" \
     "main/binary-${architecture}/Packages" "${cache_dir}" "${temp_dir}")"
 
-# Force the usr merge.
-exclude_packages_regex="^usrmerge$"
-additional_required_packages_regex="^usr-is-merged$"
+# Determine the "required" packages.
+exclude_packages="usrmerge"
+additional_packages="usr-is-merged"
+if [ "${distribution}" = "trixie" ] && [ "${variant}" = "buildd" ]; then
+    additional_packages="mawk|${additional_packages}"
+    initial_required_packages="$(filter_packages "${all_packages}" "Essential" "^yes$")"
+else
+    initial_required_packages="$(filter_packages "${all_packages}" "Priority" "^required$")"
+fi
 
-# Determine the "required" packages. Note, trixie and later buildd use
-# Essential: yes and mawk rather than required packages.
-priority_required_packages="$(filter_packages \
-    "${all_packages}" "Priority" "^required$")"
 additional_required_packages="$(filter_packages \
-    "${all_packages}" "Package" "${additional_required_packages_regex}")"
+    "${all_packages}" "Package" "^(${additional_packages})$")"
 direct_required_packages="$(concat_packages \
-    "${priority_required_packages}" "${additional_required_packages}")"
+    "${initial_required_packages}" "${additional_required_packages}")"
 required_packages="$(get_package_dependencies "${all_packages}" \
-    "${direct_required_packages}" "${exclude_packages_regex}")"
+    "${direct_required_packages}" "^(${exclude_packages})$")"
 
 # Determine the "base" packages.
 case "${variant}" in
@@ -397,7 +405,7 @@ case "${mirror}" in
 esac
 direct_base_packages="$(concat_packages "${direct_base_packages}" "${extra_base_packages}")"
 base_packages="$(get_package_dependencies \
-    "${all_packages}" "${direct_base_packages}" "${exclude_packages_regex}")"
+    "${all_packages}" "${direct_base_packages}" "^(${exclude_packages})$")"
 
 # Download all of the packages in the combined "required" and "base" set.
 install_packages_with_duplicates="$(concat_packages \
@@ -416,11 +424,12 @@ rm -rf "${temp_dir}"
 restore="$(pwd)"
 cd "${output_dir}"
 for dir in bin lib sbin; do
+    [ -L "${dir}" ] && continue
     cp -r "${dir}"/* "usr/${dir}/"
     rm -rf "${dir}"
     ln -s "usr/${dir}" "${dir}"
 done
-if [ -e lib64 ]; then
+if [ -e lib64 ] && [ ! -L lib64 ]; then
     mv lib64 usr/lib64
     ln -s usr/lib64 lib64
 fi
@@ -489,7 +498,7 @@ remaining_base_package_names="$(remove_from \
 installed_predeps=""
 while predep="$(in_target "${output_dir}" dpkg --predep-package)"; do
     predep_dependencies="$(get_package_dependencies \
-        "${install_packages}" "${predep}" "${exclude_packages_regex}")"
+        "${install_packages}" "${predep}" "^(${exclude_packages})$")"
     predep_package_names_unfiltered="$(echo "${predep_dependencies}" |
         package_field "Package")"
     predep_package_names_without_required="$(remove_from \
