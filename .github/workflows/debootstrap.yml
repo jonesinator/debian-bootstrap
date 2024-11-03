@@ -174,24 +174,30 @@ jobs:
           mkdir rootfs
           sudo tar --extract --xz --file ../rootfs.tar.xz --directory rootfs
           sudo ./build-deps
+          echo "Pack build-rootfs.tar.xz"
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create --xz --file ../build-rootfs.tar.xz \
+          LC_ALL=C sudo tar --create -xz --file ../build-rootfs.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
-          tar --create --xz --file ../build-deps-cache.tar.xz cache
-      - name: Archive Cache
+          echo "Pack build-deps-cache.tar"
+          find cache -type f | while read -r file; do
+              echo "Archiving file $file"
+              tar --append --file ../build-deps-cache.tar "$file"
+              rm "$file"
+          done
+      - name: Archive Package List
         uses: actions/upload-artifact@v4
         with:
-          path: build-deps-cache.tar.xz
-          name: build-deps-cache.tar.xz
-      - name: Archive Root Filesystem
+          path: bootstrap/all-packages
+          name: all-packages
+      - name: Archive Builder Root Filesystem
         uses: actions/upload-artifact@v4
         with:
           path: build-rootfs.tar.xz
           name: build-rootfs.tar.xz
-      - name: Archive Packages List
+      - name: Archive Build Dependencies Cache
         uses: actions/upload-artifact@v4
         with:
-          path: all-packages
-          name: all-packages
+          path: build-deps-cache.tar
+          name: build-deps-cache.tar

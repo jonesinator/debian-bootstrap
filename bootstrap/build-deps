@@ -351,3 +351,7 @@ echo "${source_uris}" | while read -r line; do
 done
 
 echo "${all_packages}" > all-packages
+
+umount "${output_dir}/tmp"
+umount "${output_dir}/dev"
+umount "${output_dir}/proc"
