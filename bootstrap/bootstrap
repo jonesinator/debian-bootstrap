@@ -503,6 +503,8 @@ while predep="$(in_target "${output_dir}" dpkg --predep-package)"; do
         "${predep_package_names}")"
 done
 
+echo AARON1
+
 # Determine the set of packages remaining since we've installed all the predeps.
 remaining_regex="^($(echo "${remaining_base_package_names}" | escape_package_names | tr '\n' '|'))$"
 remaining_base_packages="$(filter_packages \
@@ -510,19 +512,28 @@ remaining_base_packages="$(filter_packages \
 remaining_base_package_archives="$(deb_for_packages \
     "${remaining_base_packages}" ".*" "${mirror}")"
 
+echo AARON2
+
 # Now we can unpack and configure the rest of the "base" package set.
 if [ -n "${remaining_base_package_archives}" ]; then
+    echo AARON3
     # shellcheck disable=SC2086
     in_target "${output_dir}" dpkg --force-overwrite --force-confold \
         --skip-same-version --unpack ${remaining_base_package_archives}
 fi
 
+echo AARON4
+
 in_target "${output_dir}" \
     dpkg --force-confold --skip-same-version --configure -a
+
+echo AARON5
 
 # Clean up.
 rm -rf "${output_dir}/cache"
 umount "${output_dir}/proc"
+
+echo AARON6
 
 ################################################################################
 # Reproducibility Cleanup                                                      #
