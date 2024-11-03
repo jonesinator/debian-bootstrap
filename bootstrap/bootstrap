@@ -503,37 +503,24 @@ while predep="$(in_target "${output_dir}" dpkg --predep-package)"; do
         "${predep_package_names}")"
 done
 
-echo AARON1
-
-# Determine the set of packages remaining since we've installed all the predeps.
-remaining_regex="^($(echo "${remaining_base_package_names}" | escape_package_names | tr '\n' '|'))$"
-remaining_base_packages="$(filter_packages \
-    "${base_packages}" "Package" "${remaining_regex}")"
-remaining_base_package_archives="$(deb_for_packages \
-    "${remaining_base_packages}" ".*" "${mirror}")"
-
-echo AARON2
-
 # Now we can unpack and configure the rest of the "base" package set.
-if [ -n "${remaining_base_package_archives}" ]; then
-    echo AARON3
+if [ -n "${remaining_base_package_names}" ]; then
+    remaining_regex="^($(echo "${remaining_base_package_names}" | escape_package_names | tr '\n' '|'))$"
+    remaining_base_packages="$(filter_packages \
+        "${base_packages}" "Package" "${remaining_regex}")"
+    remaining_base_package_archives="$(deb_for_packages \
+        "${remaining_base_packages}" ".*" "${mirror}")"
     # shellcheck disable=SC2086
     in_target "${output_dir}" dpkg --force-overwrite --force-confold \
         --skip-same-version --unpack ${remaining_base_package_archives}
 fi
 
-echo AARON4
-
 in_target "${output_dir}" \
     dpkg --force-confold --skip-same-version --configure -a
-
-echo AARON5
 
 # Clean up.
 rm -rf "${output_dir}/cache"
 umount "${output_dir}/proc"
-
-echo AARON6
 
 ################################################################################
 # Reproducibility Cleanup                                                      #
@@ -541,7 +528,7 @@ echo AARON6
 
 # The contents of dev are mostly decided by the Linux kernel, and can easily
 # be recreated when needed.
-rm -rfv "${output_dir}"/dev/*
+rm -rfv "${output_dir:?}"/dev/*
 
 # May appear sometimes.
 rm -rfv "${output_dir}"/etc/apparmor.d/local/sbin.dhclient
