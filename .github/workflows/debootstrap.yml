@@ -64,71 +64,72 @@ jobs:
         with:
           path: ${{ env.prefix }}-cache.tar.xz
           name: ${{ env.prefix }}-cache.tar.xz
-  #  bootstrap-offline:
-  #    runs-on: ubuntu-latest
-  #    needs: bootstrap
-  #    strategy:
-  #      matrix:
-  #        distribution:
-  #          - bookworm
-  #          - trixie
-  #        architecture:
-  #          - amd64
-  #          - arm64
-  #          - riscv64
-  #        variant:
-  #          - standard
-  #          - buildd
-  #          - minbase
-  #        protocol:
-  #          - http
-  #          - https
-  #        exclude:
-  #          - distribution: bookworm
-  #            architecture: riscv64
-  #    env:
-  #      prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
-  #    steps:
-  #      - name: Get Repository
-  #        uses: actions/checkout@v4
-  #      - name: Set up QEMU
-  #        uses: docker/setup-qemu-action@v3
-  #      - name: Restore Cache
-  #        uses: actions/download-artifact@v4
-  #        with:
-  #          name: cache-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
-  #      - name: Run Offline Bootstrap
-  #        run: |
-  #          cd bootstrap
-  #          sudo tar --extract --xz --file ../cache-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
-  #          docker build --file Containerfile --target bootstrap --tag bootstrap .
-  #          docker run \
-  #            --env architecture=${{ matrix.architecture }} \
-  #            --env keyserver=none \
-  #            --env mirror=${{ matrix.protocol }}://deb.debian.org/debian \
-  #            --env variant=${{ matrix.variant }} \
-  #            --net none \
-  #            --privileged \
-  #            --volume "$(pwd)/cache:/cache:ro" \
-  #            --volume "$(pwd)/rootfs:/debian" \
-  #            bootstrap
-  #          timestamp="$(git log -1 --format=tformat:%cd \
-  #            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-  #          LC_ALL=C sudo tar --create --xz --file ../offline-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz \
-  #            --directory rootfs --sort name --numeric-owner \
-  #            --mtime "${timestamp}" --clamp-mtime .
-  #      - name: Get Original Bootstrap Rootfs
-  #        uses: actions/download-artifact@v4
-  #        with:
-  #          name: rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
-  #      - name: Ensure Identical Artifacts
-  #        run: |
-  #          sha256sum rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz offline-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
-  #          if ! diff rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz offline-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz; then
-  #            sudo apt-get update
-  #            sudo apt-get install --yes diffoscope
-  #            diffoscope rootfs-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz offline-${{ matrix.protocol }}-${{ matrix.variant }}-${{ matrix.architecture }}.tar.xz
-  #          fi
+  bootstrap-offline:
+    runs-on: ubuntu-latest
+    needs: bootstrap
+    strategy:
+      matrix:
+        distribution:
+          - bookworm
+          - trixie
+        architecture:
+          - amd64
+          - arm64
+          - riscv64
+        variant:
+          - standard
+          - buildd
+          - minbase
+        protocol:
+          - http
+          - https
+        exclude:
+          - distribution: bookworm
+            architecture: riscv64
+    env:
+      prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
+    steps:
+      - name: Get Repository
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Restore Cache
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.prefix }}-cache.tar.xz
+      - name: Run Offline Bootstrap
+        run: |
+          cd bootstrap
+          sudo tar --extract --xz --file ../${prefix}-cache.tar.xz
+          docker build --file Containerfile --target bootstrap --tag bootstrap .
+          docker run \
+            --env architecture=${{ matrix.architecture }} \
+            --env distribution=${{ matrix.distribution }} \
+            --env keyserver=none \
+            --env mirror=${{ matrix.protocol }}://deb.debian.org/debian \
+            --env variant=${{ matrix.variant }} \
+            --net none \
+            --privileged \
+            --volume "$(pwd)/cache:/cache:ro" \
+            --volume "$(pwd)/rootfs:/debian" \
+            bootstrap
+          timestamp="$(git log -1 --format=tformat:%cd \
+            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          LC_ALL=C sudo tar --create --xz --file ../${prefix}-rootfs-offline.tar.xz \
+            --directory rootfs --sort name --numeric-owner \
+            --mtime "${timestamp}" --clamp-mtime .
+      - name: Get Original Bootstrap Rootfs
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.prefix }}-rootfs.tar.xz
+      - name: Ensure Identical Artifacts
+        run: |
+          sha256sum ${prefix}-rootfs.tar.xz ${prefix}-rootfs-offline.tar.xz
+          if ! diff ${prefix}-rootfs.tar.xz ${prefix}-rootfs-offline.tar.xz; then
+            sudo apt-get update
+            sudo apt-get install --yes diffoscope
+            diffoscope ${prefix}-rootfs.tar.xz ${prefix}-rootfs-offline.tar.xz
+          fi
   #  debootstrap:
   #    runs-on: ubuntu-latest
   #    needs: bootstrap
