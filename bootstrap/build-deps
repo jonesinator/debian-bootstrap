@@ -59,7 +59,7 @@ download() {
     url__b="${1}"
     cache_dir__b="${2}"
 
-    wget -nc "${url__b}" \
+    wget -q --show-progress -nc --tries 5 --waitretry 30 "${url__b}" \
         -P "$(dirname "$(cache_path "${url__b}" "${cache_dir__b}")")"
     cache_path "${url__b}" "${cache_dir__b}"
 
@@ -295,12 +295,12 @@ manual_apt_install "${cache_dir}" "${output_dir}" install --yes build-essential
 installed_packages="$(in_target "${output_dir}" dpkg --list | awk '/^ii/ { print $2 }')"
 
 # Iteratively get build dependencies until we stop adding new packages.
+echo "Geting build dependencies"
 build_dep_uris=
 packages="${installed_packages}"
 while [ -n "${packages}" ]; do
     all_uris=
     for package in $(echo "${packages}" | tr '\n' ' '); do
-        echo "Getting build deps for ${package}"
         uris="$(in_target "${output_dir}" apt-get -qq build-dep --print-uris "${package}")"
         all_uris="$(printf "%s\n%s" "${uris}" "${all_uris}")"
     done
@@ -312,11 +312,11 @@ done
 # Now we have a complete list of binary packages that we need (the currently
 # installed packages, and their recursive build dependencies). Get the URIs for
 # the source packages for all of these binary packages.
+echo "Geting source URIs"
 build_dep_packages="$(echo "${build_dep_uris}" | awk '{print $2}' | cut -f1 -d_ | sort | uniq)"
 all_packages="$(printf "%s\n%s" "${installed_packages}" "${build_dep_packages}" | sort | uniq)"
 sources=
 for package in $(echo "${all_packages}" | tr "\n" " "); do
-    echo "Getting sources for ${package}"
     package_sources="$(in_target "${output_dir}" apt-get -qq source --print-uris "${package}")"
     sources="$(printf "%s\n%s" "${package_sources}" "${sources}")"
 done

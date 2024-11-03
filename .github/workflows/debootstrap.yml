@@ -181,10 +181,10 @@ jobs:
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
           echo "Pack build-deps-cache.tar"
-          find cache -type f | while read -r file; do
-              echo "Archiving file $file"
-              tar --append --file ../build-deps-cache.tar "$file"
-              sudo rm "$file"
+          find $(find cache -type d -name pool) -mindepth 2 -maxdepth 2 -type d | while read -r mirror_dir; do
+              echo "Archiving directory $mirror_dir"
+              tar --append --file ../build-deps-cache.tar "$mirror_dir"
+              sudo rm -rf "$mirror_dir"
           done
       - name: Archive Package List
         uses: actions/upload-artifact@v4
