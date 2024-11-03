@@ -133,71 +133,72 @@ jobs:
             sudo apt-get install --yes diffoscope
             diffoscope rootfs.tar.xz debootstrap.tar.xz
           fi
-  attestation:
-    runs-on: ubuntu-latest
-    needs:
-      - bootstrap-offline
-      - debootstrap
-    permissions:
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-      - name: Attest
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-path: artifacts/*
-  build-deps:
-    runs-on: ubuntu-latest
-    needs:
-      - attestation
-    steps:
-      - name: Get Repository
-        uses: actions/checkout@v4
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      - name: Restore Rootfs
-        uses: actions/download-artifact@v4
-        with:
-          name: rootfs.tar.xz
-      - name: Restore Cache
-        uses: actions/download-artifact@v4
-        with:
-          name: cache.tar.xz
-      - name: Run Build Deps
-        run: |
-          cd bootstrap
-          sudo tar --extract --xz --file ../cache.tar.xz
-          mkdir rootfs
-          sudo tar --extract --xz --file ../rootfs.tar.xz --directory rootfs
-          sudo ./build-deps
-          echo "Pack build-rootfs.tar.xz"
-          timestamp="$(git log -1 --format=tformat:%cd \
-            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create --xz --file ../build-rootfs.tar.xz \
-            --directory rootfs --sort name --numeric-owner \
-            --mtime "${timestamp}" --clamp-mtime .
-          echo "Pack build-deps-cache.tar"
-          find $(find cache -type d -name pool) -mindepth 2 -maxdepth 2 -type d | while read -r mirror_dir; do
-              echo "Archiving directory $mirror_dir"
-              tar --append --file ../build-deps-cache.tar "$mirror_dir"
-              sudo rm -rf "$mirror_dir"
-          done
-      - name: Archive Package List
-        uses: actions/upload-artifact@v4
-        with:
-          path: bootstrap/all-packages
-          name: all-packages
-      - name: Archive Builder Root Filesystem
-        uses: actions/upload-artifact@v4
-        with:
-          path: build-rootfs.tar.xz
-          name: build-rootfs.tar.xz
-      - name: Archive Build Dependencies Cache
-        uses: actions/upload-artifact@v4
-        with:
-          path: build-deps-cache.tar
-          name: build-deps-cache.tar
+  # SKIP FOR NOW
+  #attestation:
+  #  runs-on: ubuntu-latest
+  #  needs:
+  #    - bootstrap-offline
+  #    - debootstrap
+  #  permissions:
+  #    id-token: write
+  #    attestations: write
+  #  steps:
+  #    - uses: actions/download-artifact@v4
+  #      with:
+  #        path: artifacts
+  #        merge-multiple: true
+  #    - name: Attest
+  #      uses: actions/attest-build-provenance@v1
+  #      with:
+  #        subject-path: artifacts/*
+  #build-deps:
+  #  runs-on: ubuntu-latest
+  #  needs:
+  #    - attestation
+  #  steps:
+  #    - name: Get Repository
+  #      uses: actions/checkout@v4
+  #    - name: Set up QEMU
+  #      uses: docker/setup-qemu-action@v3
+  #    - name: Restore Rootfs
+  #      uses: actions/download-artifact@v4
+  #      with:
+  #        name: rootfs.tar.xz
+  #    - name: Restore Cache
+  #      uses: actions/download-artifact@v4
+  #      with:
+  #        name: cache.tar.xz
+  #    - name: Run Build Deps
+  #      run: |
+  #        cd bootstrap
+  #        sudo tar --extract --xz --file ../cache.tar.xz
+  #        mkdir rootfs
+  #        sudo tar --extract --xz --file ../rootfs.tar.xz --directory rootfs
+  #        sudo ./build-deps
+  #        echo "Pack build-rootfs.tar.xz"
+  #        timestamp="$(git log -1 --format=tformat:%cd \
+  #          --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+  #        LC_ALL=C sudo tar --create --xz --file ../build-rootfs.tar.xz \
+  #          --directory rootfs --sort name --numeric-owner \
+  #          --mtime "${timestamp}" --clamp-mtime .
+  #        echo "Pack build-deps-cache.tar"
+  #        find $(find cache -type d -name pool) -mindepth 2 -maxdepth 2 -type d | while read -r mirror_dir; do
+  #            echo "Archiving directory $mirror_dir"
+  #            tar --append --file ../build-deps-cache.tar "$mirror_dir"
+  #            sudo rm -rf "$mirror_dir"
+  #        done
+  #    - name: Archive Package List
+  #      uses: actions/upload-artifact@v4
+  #      with:
+  #        path: bootstrap/all-packages
+  #        name: all-packages
+  #    - name: Archive Builder Root Filesystem
+  #      uses: actions/upload-artifact@v4
+  #      with:
+  #        path: build-rootfs.tar.xz
+  #        name: build-rootfs.tar.xz
+  #    - name: Archive Build Dependencies Cache
+  #      uses: actions/upload-artifact@v4
+  #      with:
+  #        path: build-deps-cache.tar
+  #        name: build-deps-cache.tar
