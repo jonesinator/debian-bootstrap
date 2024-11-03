@@ -37,8 +37,8 @@ cache_path() {
     url__="${1}"
     cache_dir__="${2}"
 
-    host__="$(echo "${url__}" | sed 's|^http.://||' | cut -d/ -f1)"
-    file_path__="$(echo "${url__}" | sed 's|^http.://||' | cut -d/ -f2-)"
+    host__="$(echo "${url__}" | sed 's|^https?://||' | cut -d/ -f1)"
+    file_path__="$(echo "${url__}" | sed 's|^https?://||' | cut -d/ -f2-)"
     echo "${cache_dir__}/${host__}/${file_path__}"
 }
 
