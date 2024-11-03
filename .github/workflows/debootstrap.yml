@@ -177,7 +177,7 @@ jobs:
           echo "Pack build-rootfs.tar.xz"
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create -xz --file ../build-rootfs.tar.xz \
+          LC_ALL=C sudo tar --create --xz --file ../build-rootfs.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
           echo "Pack build-deps-cache.tar"
