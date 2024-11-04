@@ -16,6 +16,15 @@ ENTRYPOINT ["bootstrap"]
 FROM docker.io/library/debian:bookworm-slim as debootstrap
 RUN apt-get update \
  && apt-get install --yes \
-      debootstrap \
+      arch-test \
+      ca-certificates \
+      debian-archive-keyring \
+      git \
+      gnupg \
+      wget \
+      xz-utils \
  && rm -rf /var/lib/apt/lists/*
-ENTRYPOINT ["debootstrap"]
+RUN git clone https://salsa.debian.org/installer-team/debootstrap.git \
+ && cd debootstrap \
+ && git checkout cef6d5d69a4ceac80db6fe3bbefc96ebc362087f
+ENTRYPOINT ["/debootstrap/debootstrap"]
