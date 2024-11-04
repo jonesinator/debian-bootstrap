@@ -429,8 +429,9 @@ manual_apt_update() {
         "${keyserver__f}" \
         "${cache_dir__f}" \
         "${temp_dir__f}" | tee "${out_dir__f}/$(url_to_apt_list "${prefix__f}/InRelease")")"
-    printf "%s" "${release_data__f}" | tail -n +4 | sed '/^-----BEGIN PGP SIGNATURE-----$/Q' > "${out_dir__f}/$(url_to_apt_list "${prefix__f}/Release")"
-    printf "%s" "${release_data__f}" | sed -n '/^-----BEGIN PGP SIGNATURE-----$/,/^-----END PGP SIGNATURE-----$/p' > "${out_dir__f}/$(url_to_apt_list "${prefix__f}/Release.gpg")"
+    echo "${release_data__f}" | tail -n +4 | sed '/^-----BEGIN PGP SIGNATURE-----$/Q' > "${out_dir__f}/$(url_to_apt_list "${prefix__f}/Release")"
+    truncate -s -1 "${out_dir__f}/$(url_to_apt_list "${prefix__f}/Release")"
+    echo "${release_data__f}" | sed -n '/^-----BEGIN PGP SIGNATURE-----$/,/^-----END PGP SIGNATURE-----$/p' > "${out_dir__f}/$(url_to_apt_list "${prefix__f}/Release.gpg")"
     for component__f in ${components__f}; do
         for file__f in ${files__f}; do
             contents__f="$(get_release_file \
