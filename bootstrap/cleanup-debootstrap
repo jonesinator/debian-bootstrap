@@ -65,6 +65,7 @@ touch "${rootfs_dir}"/usr/share/locale
 touch "${rootfs_dir}"/usr/share/man
 touch "${rootfs_dir}"/usr/share/perl5
 touch "${rootfs_dir}"/usr/lib/mime
+touch "${rootfs_dir}"/usr/lib/systemd
 touch "${rootfs_dir}"/usr/lib/terminfo
 touch "${rootfs_dir}"/usr/share/bash-completion
 touch "${rootfs_dir}"/usr/share/locale/*

@@ -586,6 +586,7 @@ rm -rfv "${output_dir}"/var/log/alternatives.log
 # Ensure some timestamps are updated.
 touch "${output_dir}"/proc
 touch "${output_dir}"/usr/lib/mime
+touch "${output_dir}"/usr/lib/systemd
 touch "${output_dir}"/usr/lib/terminfo
 touch "${output_dir}"/usr/libexec
 touch "${output_dir}"/usr/share
