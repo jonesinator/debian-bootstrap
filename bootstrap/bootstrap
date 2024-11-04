@@ -690,3 +690,4 @@ touch "${output_dir}"/usr/share/man
 touch "${output_dir}"/usr/share/man/*
 touch "${output_dir}"/usr/share/perl5
 touch "${output_dir}"/var/lib/apt
+touch "${output_dir}"/var/lib/apt/lists/partial
