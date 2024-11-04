@@ -1,72 +1,55 @@
 #!/bin/sh -eu
 
-rootfs_dir="${1}"
+# The contents of /dev can be recreated when needed.
+rm -rfv "${1}"/dev/*
 
-# The contents of dev are mostly decided by the Linux kernel, and can easily
-# be recreated when needed.
-rm -rfv "${rootfs_dir}"/dev/*
+# debootstrap will copy these from the host. We remove them because it makes for
+# a reproducibility issue.
+rm -rfv "${1}"/etc/hostname
+rm -rfv "${1}"/etc/resolv.conf
 
-# May appear sometimes.
-rm -rfv "${rootfs_dir}"/etc/apparmor.d/local/sbin.dhclient
+# A random ID generated that is a source of non-reproducibility.
+rm -rfv "${1}"/etc/machine-id
 
-# A placeholder fstab is created by deboostrap with just a comment. The
-# bootstrap script could easily be updated to mimic this, but instead just
-# remove the file since it is usually clobbered later anyway.
-rm -rfv "${rootfs_dir}"/etc/fstab
+# According to the Linux FHS, the /run directory is to be cleared each boot, so
+# it should be fine to remove its contents:
+#   https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html
+rm -rfv "${1}"/run/*
 
-# debootstrap will copy /etc/hostname from the host, we get rid of it.
-rm -rfv "${rootfs_dir}"/etc/hostname
-
-# debootstrap will copy /etc/resolv.conf from the host, we get rid of it.
-rm -rfv "${rootfs_dir}"/etc/resolv.conf
-
-# Both scripts generate this random ID. Remove it since it can easily be
-# regenerated later and is a source of non-reproducibility.
-rm -rfv "${rootfs_dir}"/etc/machine-id
-
-# Both the ./bootstrap script and debootstrap leave some state files in
-# here. According to the Linux FHS, the /run directory is to be cleared each
-# boot, so it should be fine to remove its contents.
-# https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html
-rm -rfv "${rootfs_dir}"/run/*
-
-# Both the ./bootstrap script and debootstrap leave some files in here.
 # According to the Linux FHS, the application must be able to regenerate or
 # restore any data in the /var/cache directory, so it should be fine to
 # remove its contents.
-rm -rfv "${rootfs_dir}"/var/cache/*
-
-# Apt stores some downloaded files from the mirror here, but they can be
-# retreived again. The ./bootstrap script doesn't bother making them, and
-# since they can be recreated, it's easier to just remove them here.
-rm -rfv "${rootfs_dir}"/var/lib/apt/lists/*
+rm -rfv "${1}"/var/cache/*
 
 # This is a file used by dpkg to know what packages are available. The local
 # ./bootstrap script and debootstrap both generate basically the same file,
 # but the ordering is different. They could be made the same with some
 # effort, but this file is not actually essential and can be regenerated
 # from the package list, so it should be good to remove here.
-rm -rfv "${rootfs_dir}"/var/lib/dpkg/available
+rm -rfv "${1}"/var/lib/dpkg/available
 
 # This is a file that can be used by dpkg for backup purposes, but is
 # generally not needed, especially on a just-bootstrapped system.
-rm -rfv "${rootfs_dir}"/var/lib/dpkg/status-old
+rm -rfv "${1}"/var/lib/dpkg/status-old
 
 # These are log files that have timestamps which are a source of
 # non-reproducibility.
-rm -rfv "${rootfs_dir}"/var/log/bootstrap.log
-rm -rfv "${rootfs_dir}"/var/log/dpkg.log
-rm -rfv "${rootfs_dir}"/var/log/alternatives.log
+rm -rfv "${1}"/var/log/bootstrap.log
+rm -rfv "${1}"/var/log/dpkg.log
+rm -rfv "${1}"/var/log/alternatives.log
+
+# May appear sometimes.
+rm -rfv "${1}"/etc/apparmor.d/local/sbin.dhclient
 
 # Ensure some timestamps are updated.
-touch "${rootfs_dir}"/usr/share
-touch "${rootfs_dir}"/usr/share/doc
-touch "${rootfs_dir}"/usr/share/locale
-touch "${rootfs_dir}"/usr/share/man
-touch "${rootfs_dir}"/usr/share/perl5
-touch "${rootfs_dir}"/usr/lib/mime
-touch "${rootfs_dir}"/usr/lib/systemd
-touch "${rootfs_dir}"/usr/lib/terminfo
-touch "${rootfs_dir}"/usr/share/bash-completion
-touch "${rootfs_dir}"/usr/share/locale/*
-touch "${rootfs_dir}"/usr/share/man/*
+touch "${1}"/usr/share
+touch "${1}"/usr/share/doc
+touch "${1}"/usr/share/locale
+touch "${1}"/usr/share/man
+touch "${1}"/usr/share/perl5
+touch "${1}"/usr/lib/mime
+touch "${1}"/usr/lib/systemd
+touch "${1}"/usr/lib/terminfo
+touch "${1}"/usr/share/bash-completion
+touch "${1}"/usr/share/locale/*
+touch "${1}"/usr/share/man/*

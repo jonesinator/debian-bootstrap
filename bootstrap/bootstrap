@@ -103,8 +103,7 @@ get_release() {
     temp_path_="${8}"
 
     # Download the signing keys and the InRelease file, then validate the
-    # InRelease file. Note the "gpg" command below has "--output -" which sends
-    # the file to stdout.
+    # InRelease file.
     rm -rf "${temp_path_}"
     mkdir -m 0700 "${temp_path_}"
     for key_ in ${keys_}; do
@@ -113,7 +112,7 @@ get_release() {
     done
     in_release_path_="$(download \
         "${mirror_}/dists/${distribution_}/InRelease" "${cache_dir_}")"
-    gpg --homedir "${temp_path_}" --output - --verify "${in_release_path_}"
+    gpg --homedir "${temp_path_}" --verify "${in_release_path_}"
     rm -rf "${temp_path_}"
 
     # Validate the InRelease file using the fingerprints and a keyserver, if
@@ -128,40 +127,68 @@ get_release() {
         gpg --homedir "${temp_path_}" --verify "${in_release_path_}"
         rm -rf "${temp_path_}"
     fi
+
+    cat "${in_release_path_}"
 }
 
-# Prints the contents a file described by the "Release" file of the package
-# archive by path. Assumes gzip compression. The file is also cached in the
-# cache directory.
+# Prints the verified contents a file described by the "Release" file of the
+# package archive by path.
 get_release_file() {
-    mirror_="${1}"
-    distribution_="${2}"
-    release_="${3}"
-    path_="${4}"
-    cache_dir_="${5}"
-    temp_path_="${6}"
+    mirror__d="${1}"
+    distribution__d="${2}"
+    release__d="${3}"
+    path__d="${4}"
+    cache_dir__d="${5}"
+    temp_path__d="${6}"
 
     # Parse the files from the release in the format " {sha256} {size} {path}".
     # The first sed starts capturing after the line with "SHA256:", and the
     # second sed stops capturing on the first line that does not stop with a
     # space.
-    files_="$(echo "${release_}" | sed '1,/^SHA256:$/ d' | sed '/^[^ ]/Q')"
+    files__d="$(echo "${release__d}" | sed '1,/^SHA256:$/ d' | sed '/^[^ ]/Q')"
 
-    # Extract the hash for the gzip compressed file, and use it to construct the
-    # URL to download the file. Then download the file and check the hash.
-    packed_hash_="$(echo "${files_}" | grep "${path_}.gz$" | awk '{print $1}')"
-    hash_path_="$(dirname "${path_}")/by-hash/SHA256/${packed_hash_}"
-    url_="${mirror_}/dists/${distribution_}/${hash_path_}"
-    file_="$(download "${url_}" "${cache_dir_}")"
-    echo "${packed_hash_}  ${file_}" | sha256sum -c --status
+    # Look for the compressed file.
+    for compression__d in "xz" "gz"; do
+        packed_path__d="${path__d}.${compression__d}"
+        packed_hash__d="$(echo "${files__d}" |
+            grep " ${packed_path__d}$" | cut -d' ' -f2)"
+        if [ -n "${packed_hash__d}" ]; then
+            break
+        fi
+    done
+    if [ -z "${packed_hash__d}" ]; then
+        return 1
+    fi
+
+    # Prefer getting files by their hash if possible.
+    by_hash__d="$( \
+        echo "${release__d}" | sed -n 's/Acquire-By-Hash: //p' || echo "no")"
+    if [ "${by_hash__d}" = "yes" ]; then
+        download_path__d="$(dirname "${path__d}")/by-hash/SHA256/${packed_hash__d}"
+    else
+        download_path__d="${packed_path__d}"
+    fi
+
+    # Get the compressed file and check its hash.
+    url__d="${mirror__d}/dists/${distribution__d}/${download_path__d}"
+    file__d="$(download "${url__d}" "${cache_dir__d}")"
+    echo "${packed_hash__d}  ${file__d}" | sha256sum -c --status
 
     # Decompress the downloaded file and check its hash as well.
-    rm -rf "${temp_path_}"
-    gunzip --stdout "${file_}" > "${temp_path_}"
-    unpacked_hash_="$(echo "${files_}" | grep "${path_}$" | awk '{print $1}')"
-    echo "${unpacked_hash_}  ${temp_path_}" | sha256sum -c --status
-    cat "${temp_path_}"
-    rm "${temp_path_}"
+    extension__d="$(echo "${packed_path__d}" | rev | cut -d. -f1 | rev)"
+    rm -rf "${temp_path__d}"
+    case "${extension__d}" in
+        gz) gzip --decompress --stdout "${file__d}" > "${temp_path__d}" ;;
+        xz) xz --decompress --stdout "${file__d}" > "${temp_path__d}" ;;
+    esac
+    unpacked_hash__d="$(echo "${files__d}" | grep "${path__d}$" | cut -d' ' -f2)"
+    echo "${unpacked_hash__d}  ${temp_path__d}" | sha256sum -c --status
+    cat "${temp_path__d}"
+    rm "${temp_path__d}"
+
+    unset mirror__d distribution__d release__d path__d cache_dir__d temp_path__d
+    unset files__d compression__d packed_path__d packed_hash__d by_hash__d
+    unset download_path__d url__d file__d extension__d unpacked_hash__d
 }
 
 # Takes a set of package infos and filters them with awk and prints the results.
@@ -364,6 +391,68 @@ unpack_packages() {
     done
 }
 
+# Converts a package metadata file URL to the filename it should have in
+# /var/cache/apt. Prints the filename to stdout.
+url_to_apt_list() {
+    url__e="${1}"
+
+    echo "${url__e}" | sed 's|^https\?://||' | sed 's|/|_|g'
+
+    unset url__e
+}
+
+# Runs a "manual" apt update by downloading the appropriate package metadata
+# files from the mirror and putting them in the output dir with the correct
+# names for /var/cache/apt. Effectially this does an "apt update", but it uses
+# this script's cache and download utilities.
+manual_apt_update() {
+    url__f="${1}"
+    distribution__f="${2}"
+    components__f="${3}"
+    key_url__f="${4}"
+    keys__f="${5}"
+    fingerprints__f="${6}"
+    keyserver__f="${7}"
+    cache_dir__f="${8}"
+    temp_dir__f="${9}"
+    out_dir__f="${10}"
+    shift 10
+    files__f="${*}"
+
+    prefix__f="${url__f}/dists/${distribution__f}"
+    release_data__f="$(get_release \
+        "${url__f}" \
+        "${distribution__f}" \
+        "${key_url__f}" \
+        "${keys__f}" \
+        "${fingerprints__f}" \
+        "${keyserver__f}" \
+        "${cache_dir__f}" \
+        "${temp_dir__f}" | tee "${out_dir__f}/$(url_to_apt_list "${prefix__f}/InRelease")")"
+    printf "%s" "${release_data__f}" | tail -n +4 | sed '/^-----BEGIN PGP SIGNATURE-----$/Q' > "${out_dir__f}/$(url_to_apt_list "${prefix__f}/Release")"
+    printf "%s" "${release_data__f}" | sed -n '/^-----BEGIN PGP SIGNATURE-----$/,/^-----END PGP SIGNATURE-----$/p' > "${out_dir__f}/$(url_to_apt_list "${prefix__f}/Release.gpg")"
+    for component__f in ${components__f}; do
+        for file__f in ${files__f}; do
+            contents__f="$(get_release_file \
+                "${url__f}" \
+                "${distribution__f}" \
+                "${release_data__f}" \
+                "${component__f}/${file__f}" \
+                "${cache_dir__f}" \
+                "${temp_dir__f}")"
+            if [ -n "${contents__f}" ]; then
+                printf "%s\n\n" "${contents__f}" > "${out_dir__f}/$(url_to_apt_list "${prefix__f}/${component__f}/${file__f}")"
+            fi
+        done
+    done
+
+    mkdir -p "${out_dir__f}/partial"
+
+    unset url__f distribution__f components__f key_url__f keys__f
+    unset fingerprints__f keyserver__f cache_dir__f temp_dir__f out_dir__f
+    unset files__f prefix__f release_data__f component__f file__f contents__f
+}
+
 ################################################################################
 # Main Script                                                                  #
 ################################################################################
@@ -533,6 +622,12 @@ fi
 in_target "${output_dir}" \
     dpkg --force-confold --skip-same-version --configure -a
 
+echo "# UNCONFIGURED FSTAB FOR BASE SYSTEM" > "${output_dir}/etc/fstab"
+manual_apt_update "${mirror}" "${distribution}" "main" \
+    "${key_url}" "${keys}" "${fingerprints}" "${keyserver}" \
+    "${cache_dir}" "${temp_dir}" "${output_dir}/var/lib/apt/lists" \
+    "binary-${architecture}/Packages"
+
 # Clean up.
 rm -rf "${output_dir}/cache"
 umount "${output_dir}/proc"
@@ -561,11 +656,6 @@ rm -rfv "${output_dir}"/run/*
 # restore any data in the /var/cache directory, so it should be fine to
 # remove its contents.
 rm -rfv "${output_dir}"/var/cache/*
-
-# According to the Linux FHS, the application must be able to regenerate or
-# restore any data in the /var/cache directory, so it should be fine to
-# remove its contents.
-rm -rfv "${output_dir}"/var/lib/apt/lists/*
 
 # This is a file used by dpkg to know what packages are available. The local
 # ./bootstrap script and debootstrap both generate basically the same file,
