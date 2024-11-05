@@ -1,5 +1,5 @@
 #!/bin/sh
-FROM docker.io/library/debian:bookworm-slim as bootstrap
+FROM docker.io/library/debian:bookworm-slim as debootstrap-jr
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends \
       binutils \
