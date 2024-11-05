@@ -86,7 +86,6 @@ jobs:
           wget https://github.com/anchore/syft/releases/download/v1.16.0/syft_1.16.0_linux_amd64.tar.gz
           tar --extract --gzip --file syft*.tar.gz syft
           ./syft scan dir:rootfs \
-            --platform=linux/${{ matrix.architecture }} \
             --base-path=rootfs \
             --source-name="${prefix}" \
             --source-version="${timestamp}" \
