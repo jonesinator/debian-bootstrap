@@ -83,6 +83,15 @@ jobs:
           LC_ALL=C sudo tar --create --xz --file ${prefix}-cache.tar.xz \
             --directory cache --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
+          wget https://github.com/anchore/syft/releases/download/v1.16.0/syft_1.16.0_linux_amd64.tar.gz
+          tar --extract --gzip --file syft*.tar.gz syft
+          ./syft scan dir:rootfs \
+            --platform=linux/${{ matrix.architecture }} \
+            --base-path=rootfs \
+            --source-name="${prefix}" \
+            --source-version="${timestamp}" \
+            -o "spdx-json=${prefix}-sbom.json"
+          xz "${prefix}-sbom.json"
       - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
@@ -93,6 +102,11 @@ jobs:
         with:
           path: ${{ env.prefix }}-cache.tar.xz
           name: ${{ env.prefix }}-cache.tar.xz
+      - name: Archive SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          path: ${{ env.prefix }}-sbom.json.xz
+          name: ${{ env.prefix }}-sbom.json.xz
   bootstrap-offline:
     runs-on: ubuntu-latest
     needs:
