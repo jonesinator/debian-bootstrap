@@ -32,6 +32,7 @@ ENTRYPOINT ["/debootstrap/debootstrap"]
 FROM docker.io/library/debian:bookworm-slim as lint
 RUN apt-get update \
  && apt-get install --yes \
+      cloc \
       make \
       shellcheck \
       wget \
