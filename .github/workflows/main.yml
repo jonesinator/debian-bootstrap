@@ -1,11 +1,8 @@
-name: Test Debian Bootstrap
+name: debootstrap-jr
 on:
   push:
     branches:
       - main
-    paths:
-      - bootstrap/**
-      - .github/workflows/debootstrap.yml
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -14,8 +11,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Run Lint
         run: |
-          cd bootstrap
-          docker build . --tag lint --target lint --file Containerfile
+          docker build . --target lint --tag lint
           docker run --rm --workdir /src --volume $(pwd):/src:ro lint make ci
   bootstrap:
     runs-on: ubuntu-latest
@@ -48,8 +44,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Run Bootstrap
         run: |
-          cd bootstrap
-          docker build --file Containerfile --target bootstrap --tag bootstrap .
+          docker build --target debootstrap-jr --tag debootstrap-jr .
           docker run \
             --env architecture=${{ matrix.architecture }} \
             --env distribution=${{ matrix.distribution }} \
@@ -58,13 +53,13 @@ jobs:
             --privileged \
             --volume "$(pwd)/cache:/cache" \
             --volume "$(pwd)/rootfs:/debian" \
-            bootstrap
+            debootstrap-jr
           timestamp="$(git log -1 --format=tformat:%cd \
-            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create --xz --file ../${prefix}-rootfs.tar.xz \
+            --date=format:%Y-%m-%dTdebootstrap%H:%M:%SZ "${GITHUB_SHA}")"
+          LC_ALL=C sudo tar --create --xz --file ${prefix}-rootfs.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
-          tar --create --xz --file ../${prefix}-cache.tar.xz cache
+          tar --create --xz --file ${prefix}-cache.tar.xz cache
       - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
@@ -101,7 +96,7 @@ jobs:
     env:
       prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
     steps:
-      - name: Get Repository
+      - name: Get Repository-
         uses: actions/checkout@v4
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -111,9 +106,8 @@ jobs:
           name: ${{ env.prefix }}-cache.tar.xz
       - name: Run Offline Bootstrap
         run: |
-          cd bootstrap
-          sudo tar --extract --xz --file ../${prefix}-cache.tar.xz
-          docker build --file Containerfile --target bootstrap --tag bootstrap .
+          sudo tar --extract --xz --file ${prefix}-cache.tar.xz
+          docker build --target debootstrap-jr --tag debootstrap-jr .
           docker run \
             --env architecture=${{ matrix.architecture }} \
             --env distribution=${{ matrix.distribution }} \
@@ -124,23 +118,23 @@ jobs:
             --privileged \
             --volume "$(pwd)/cache:/cache:ro" \
             --volume "$(pwd)/rootfs:/debian" \
-            bootstrap
+            debootstrap-jr
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create --xz --file ../${prefix}-rootfs-offline.tar.xz \
+          LC_ALL=C sudo tar --create --xz --file ${prefix}-offline.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
       - name: Get Original Bootstrap Rootfs
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.prefix }}-rootfs.tar.xz
+          name: ${{ env.prefix }}-rodebootstrapotfs.tar.xz
       - name: Ensure Identical Artifacts
         run: |
-          sha256sum ${prefix}-rootfs.tar.xz ${prefix}-rootfs-offline.tar.xz
-          if ! diff ${prefix}-rootfs.tar.xz ${prefix}-rootfs-offline.tar.xz; then
+          sha256sum ${prefix}-rootfs.tar.xz ${prefix}-offline.tar.xz
+          if ! diff ${prefix}-rootfs.tar.xz ${prefix}-offline.tar.xz; then
             sudo apt-get update
             sudo apt-get install --yes diffoscope
-            diffoscope ${prefix}-rootfs.tar.xz ${prefix}-rootfs-offline.tar.xz
+            diffoscope ${prefix}-rootfs.tar.xz ${prefix}-offline.tar.xz
           fi
   debootstrap:
     runs-on: ubuntu-latest
@@ -174,19 +168,35 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Run debootstrap
         run: |
-          cd bootstrap
-          docker build --file Containerfile --target debootstrap \
-            --tag debootstrap .
+          docker build --target debootstrap --tag debootstrap .
           case "${{ matrix.variant }}" in
-              standard) docker run --privileged --volume "$(pwd):/out" debootstrap --arch ${{ matrix.architecture }}                                ${{ matrix.distribution }} /out/rootfs ${{ matrix.protocol }}://deb.debian.org/debian ;;
-              buildd)   docker run --privileged --volume "$(pwd):/out" debootstrap --arch ${{ matrix.architecture }} --merged-usr --variant=buildd  ${{ matrix.distribution }} /out/rootfs ${{ matrix.protocol }}://deb.debian.org/debian ;;
-              minbase)  docker run --privileged --volume "$(pwd):/out" debootstrap --arch ${{ matrix.architecture }}              --variant=minbase ${{ matrix.distribution }} /out/rootfs ${{ matrix.protocol }}://deb.debian.org/debian ;;
+              standard)
+                  docker run --privileged --volume "$(pwd):/out" debootstrap \
+                      --arch ${{ matrix.architecture }} \
+                      ${{ matrix.distribution }} /out/rootfs \
+                      ${{ matrix.protocol }}://deb.debian.org/debian \
+                  ;;
+              buildd)
+                  docker run --privileged --volume "$(pwd):/out" debootstrap \
+                      --arch ${{ matrix.architecture }} \
+                      --variant=buildd  \
+                      --merged-usr \
+                      ${{ matrix.distribution }} /out/rootfs \
+                      ${{ matrix.protocol }}://deb.debian.org/debian \
+                      ;;
+              minbase)
+                  docker run --privileged --volume "$(pwd):/out" debootstrap \
+                      --arch ${{ matrix.architecture }} \
+                      --variant=minbase \
+                      ${{ matrix.distribution }} /out/rootfs \
+                      ${{ matrix.protocol }}://deb.debian.org/debian \
+                      ;;
               *) echo "Bad variant." && exit 1 ;;
           esac
-          sudo ./cleanup-debootstrap rootfs
+          sudo ./strip-debootstrap rootfs
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create --xz --file ../${prefix}-debootstrap.tar.xz \
+          LC_ALL=C sudo tar --create --xz --file ../${prefix}-orig.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
       - name: Get Original Bootstrap Rootfs
@@ -195,11 +205,11 @@ jobs:
           name: ${{ env.prefix }}-rootfs.tar.xz
       - name: Ensure Identical Artifacts
         run: |
-          sha256sum ${prefix}-rootfs.tar.xz ${prefix}-debootstrap.tar.xz
-          if ! diff ${prefix}-rootfs.tar.xz ${prefix}-debootstrap.tar.xz; then
+          sha256sum ${prefix}-rootfs.tar.xz ${prefix}-orig.tar.xz
+          if ! diff ${prefix}-rootfs.tar.xz ${prefix}-orig.tar.xz; then
             sudo apt-get update
             sudo apt-get install --yes diffoscope
-            diffoscope ${prefix}-rootfs.tar.xz ${prefix}-debootstrap.tar.xz
+            diffoscope ${prefix}-rootfs.tar.xz ${prefix}-orig.tar.xz
           fi
   attestation:
     runs-on: ubuntu-latest

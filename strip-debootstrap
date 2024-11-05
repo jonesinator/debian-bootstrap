@@ -1,4 +1,6 @@
 #!/bin/sh -eu
+# Removes files from a fresh "debootstrap" rootfs such that it is reproducible
+# with our local debootstrap-jr script.
 
 # The contents of /dev can be recreated when needed.
 rm -rfv "${1:?}"/dev/*

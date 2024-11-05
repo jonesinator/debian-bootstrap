@@ -10,8 +10,8 @@ RUN apt-get update \
       wget \
       xz-utils \
  && rm -rf /var/lib/apt/lists/*
-COPY bootstrap /usr/local/bin
-ENTRYPOINT ["bootstrap"]
+COPY debootstrap-jr /usr/local/bin
+ENTRYPOINT ["debootstrap-jr"]
 
 FROM docker.io/library/debian:bookworm-slim as debootstrap
 RUN apt-get update \
