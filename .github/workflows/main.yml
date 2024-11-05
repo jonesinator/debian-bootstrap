@@ -55,7 +55,7 @@ jobs:
             --volume "$(pwd)/rootfs:/debian" \
             debootstrap-jr
           timestamp="$(git log -1 --format=tformat:%cd \
-            --date=format:%Y-%m-%dTdebootstrap%H:%M:%SZ "${GITHUB_SHA}")"
+            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
           LC_ALL=C sudo tar --create --xz --file ${prefix}-rootfs.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
