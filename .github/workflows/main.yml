@@ -132,7 +132,8 @@ jobs:
           name: ${{ env.prefix }}-cache.tar.xz
       - name: Run Offline Bootstrap
         run: |
-          sudo tar --extract --xz --file ${prefix}-cache.tar.xz
+          mkdir cache
+          sudo tar --extract --xz --file ${prefix}-cache.tar.xz --directory cache
           docker build --target debootstrap-jr --tag debootstrap-jr .
           docker run \
             --env architecture=${{ matrix.architecture }} \
