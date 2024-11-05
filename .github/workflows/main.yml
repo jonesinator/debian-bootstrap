@@ -127,7 +127,7 @@ jobs:
       - name: Get Original Bootstrap Rootfs
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.prefix }}-rodebootstrapotfs.tar.xz
+          name: ${{ env.prefix }}-rootfs.tar.xz
       - name: Ensure Identical Artifacts
         run: |
           sha256sum ${prefix}-rootfs.tar.xz ${prefix}-offline.tar.xz
@@ -196,7 +196,7 @@ jobs:
           sudo ./strip-debootstrap rootfs
           timestamp="$(git log -1 --format=tformat:%cd \
             --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
-          LC_ALL=C sudo tar --create --xz --file ../${prefix}-orig.tar.xz \
+          LC_ALL=C sudo tar --create --xz --file ${prefix}-orig.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
       - name: Get Original Bootstrap Rootfs
