@@ -4,6 +4,26 @@ on:
     branches:
       - main
 jobs:
+  timestamp:
+    runs-on: ubuntu-latest
+    outputs:
+      timestamp: ${{ steps.timestamp.outputs.timestamp }}
+    steps:
+      - name: Get Repository
+        uses: actions/checkout@v4
+      - name: Gather Timestamp
+        id: timestamp
+        run: |
+          timestamp="$(git log -1 --format=tformat:%cd \
+              --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
+          echo "Timestamp: ${timestamp}"
+          echo "timestamp=${timestamp}" >> "${GITHUB_OUTPUT}"
+          echo "${timestamp}" >> bootstrap-timestamp
+      - name: Archive Bootstrap Timestamp
+        uses: actions/upload-artifact@v4
+        with:
+          path: bootstrap-timestamp
+          name: bootstrap-timestamp
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -35,7 +55,10 @@ jobs:
         exclude:
           - distribution: bookworm
             architecture: riscv64
+    needs:
+      - timestamp
     env:
+      timestamp: ${{ needs.timestamp.outputs.timestamp }}
       prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
     steps:
       - name: Get Repository
@@ -54,12 +77,12 @@ jobs:
             --volume "$(pwd)/cache:/cache" \
             --volume "$(pwd)/rootfs:/debian" \
             debootstrap-jr
-          timestamp="$(git log -1 --format=tformat:%cd \
-            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
           LC_ALL=C sudo tar --create --xz --file ${prefix}-rootfs.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
-          tar --create --xz --file ${prefix}-cache.tar.xz cache
+          LC_ALL=C sudo tar --create --xz --file ${prefix}-cache.tar.xz \
+            --directory cache --sort name --numeric-owner \
+            --mtime "${timestamp}" --clamp-mtime .
       - name: Archive Root Filesystem
         uses: actions/upload-artifact@v4
         with:
@@ -72,7 +95,9 @@ jobs:
           name: ${{ env.prefix }}-cache.tar.xz
   bootstrap-offline:
     runs-on: ubuntu-latest
-    needs: bootstrap
+    needs:
+      - timestamp
+      - bootstrap
     strategy:
       fail-fast: false
       matrix:
@@ -94,6 +119,7 @@ jobs:
           - distribution: bookworm
             architecture: riscv64
     env:
+      timestamp: ${{ needs.timestamp.outputs.timestamp }}
       prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
     steps:
       - name: Get Repository-
@@ -138,7 +164,9 @@ jobs:
           fi
   debootstrap:
     runs-on: ubuntu-latest
-    needs: bootstrap
+    needs:
+      - timestamp
+      - bootstrap
     strategy:
       fail-fast: false
       matrix:
@@ -160,6 +188,7 @@ jobs:
           - distribution: bookworm
             architecture: riscv64
     env:
+      timestamp: ${{ needs.timestamp.outputs.timestamp }}
       prefix: debian-${{ matrix.distribution }}-${{ matrix.architecture }}-${{ matrix.variant }}-${{ matrix.protocol }}
     steps:
       - name: Get Repository
@@ -183,19 +212,20 @@ jobs:
                       --merged-usr \
                       ${{ matrix.distribution }} /out/rootfs \
                       ${{ matrix.protocol }}://deb.debian.org/debian \
-                      ;;
+                  ;;
               minbase)
                   docker run --privileged --volume "$(pwd):/out" debootstrap \
                       --arch ${{ matrix.architecture }} \
                       --variant=minbase \
                       ${{ matrix.distribution }} /out/rootfs \
                       ${{ matrix.protocol }}://deb.debian.org/debian \
-                      ;;
-              *) echo "Bad variant." && exit 1 ;;
+                  ;;
+              *)
+                  echo "Bad variant."
+                  exit 1
+                  ;;
           esac
           sudo ./strip-debootstrap rootfs
-          timestamp="$(git log -1 --format=tformat:%cd \
-            --date=format:%Y-%m-%dT%H:%M:%SZ "${GITHUB_SHA}")"
           LC_ALL=C sudo tar --create --xz --file ${prefix}-orig.tar.xz \
             --directory rootfs --sort name --numeric-owner \
             --mtime "${timestamp}" --clamp-mtime .
@@ -214,6 +244,7 @@ jobs:
   attestation:
     runs-on: ubuntu-latest
     needs:
+      - timestamp
       - lint
       - bootstrap
       - bootstrap-offline
