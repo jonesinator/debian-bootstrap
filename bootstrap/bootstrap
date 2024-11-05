@@ -86,9 +86,9 @@ get_release() {
 	local keys="${4}"         # Name of key files to download.
 	local fingerprints="${5}" # Fingerprints of public keys to validate.
 	local keyserver="${6}"    # Keyserver to use to validate public keys.
-	                          # Use "none" to disable.
-	local cache_dir="${7}"    # Directory used to store downloaded files.
-	local temp_dir="${8}"     # Path for temporary gpg usage.
+	# Use "none" to disable.
+	local cache_dir="${7}" # Directory used to store downloaded files.
+	local temp_dir="${8}"  # Path for temporary gpg usage.
 	local key key_path file_path fingerprint url
 
 	# Download the keys and the file, then validate the file using the keys.
@@ -106,7 +106,7 @@ get_release() {
 	# Validate the InRelease file using the fingerprints and a keyserver.
 	if [ "${keyserver}" != "none" ]; then
 		mkdir -m 0700 "${temp_dir}"
-        	for fingerprint in ${fingerprints}; do
+		for fingerprint in ${fingerprints}; do
 			gpg --homedir "${temp_dir}" --keyserver "${keyserver}" \
 				--recv-keys "${fingerprint}"
 		done
@@ -157,14 +157,14 @@ get_release_file() {
 
 	# Decompress the downloaded file and check its hash as well.
 	case "${compression}" in
-		gz)
-			cp -p "${file}" "${output_path}.gz"
-			gzip --decompress "${output_path}.gz"
-			;;
-		xz)
-			cp -p "${file}" "${output_path}.xz"
-			xz --decompress "${output_path}.xz"
-			;;
+	gz)
+		cp -p "${file}" "${output_path}.gz"
+		gzip --decompress "${output_path}.gz"
+		;;
+	xz)
+		cp -p "${file}" "${output_path}.xz"
+		xz --decompress "${output_path}.xz"
+		;;
 	esac
 	sum="$(echo "${files}" | grep "${path}$" | cut -d' ' -f2)"
 	echo "${sum}  ${output_path}" | sha256sum -c --status
@@ -278,7 +278,7 @@ get_direct_dependencies() {
 		found=0
 		for virtual_candidate in ${virtual_names}; do
 			if printf "%s\n%s" "${names}" "${added}" |
-			    grep --quiet "${virtual_candidate}"; then
+				grep --quiet "${virtual_candidate}"; then
 				found=1
 				break
 			fi
@@ -396,27 +396,27 @@ required_packages="$(get_dependencies "${all_packages}" \
 
 # Determine the "base" packages.
 case "${variant}" in
-	standard)
-		direct_base_packages="$(filter_packages \
-			"${all_packages}" "Priority" "^important$")"
-		;;
-	buildd)
-		direct_base_packages="$(filter_packages \
-			"${all_packages}" "Package" "^(apt|build-essential)$")"
-		;;
-	minbase)
-		direct_base_packages="$(filter_packages \
-			"${all_packages}" "Package" "^apt$")"
-		;;
+standard)
+	direct_base_packages="$(filter_packages \
+		"${all_packages}" "Priority" "^important$")"
+	;;
+buildd)
+	direct_base_packages="$(filter_packages \
+		"${all_packages}" "Package" "^(apt|build-essential)$")"
+	;;
+minbase)
+	direct_base_packages="$(filter_packages \
+		"${all_packages}" "Package" "^apt$")"
+	;;
 esac
 case "${mirror}" in
-	https://*)
-		extra_base_packages="$(filter_packages \
-			"${all_packages}" "Package" "^ca-certificates$")"
-		;;
-	*)
-		extra_base_packages=""
-		;;
+https://*)
+	extra_base_packages="$(filter_packages \
+		"${all_packages}" "Package" "^ca-certificates$")"
+	;;
+*)
+	extra_base_packages=""
+	;;
 esac
 direct_base_packages="$(printf "%s\n\n%s" \
 	"${direct_base_packages}" "${extra_base_packages}")"
@@ -479,11 +479,11 @@ in_target "${output_dir}" \
 	dpkg --configure --pending --force-configure-any --force-depends
 
 # Configure some additional dpkg/apt files.
-echo "deb ${mirror} ${distribution} main" > "${output_dir}/etc/apt/sources.list"
-echo "apt apt" > "${output_dir}/var/lib/dpkg/cmethopt"
+echo "deb ${mirror} ${distribution} main" >"${output_dir}/etc/apt/sources.list"
+echo "apt apt" >"${output_dir}/var/lib/dpkg/cmethopt"
 chmod 644 "${output_dir}/var/lib/dpkg/cmethopt"
 
-echo "${install_packages}" > "${output_dir}/var/lib/dpkg/available"
+echo "${install_packages}" >"${output_dir}/var/lib/dpkg/available"
 echo "${install_packages}" | sed -n "s/^Package: //p" | sed 's/$/ install/' |
 	in_target "${output_dir}" dpkg --set-selections
 
@@ -533,20 +533,21 @@ in_target "${output_dir}" \
 	dpkg --force-confold --skip-same-version --configure -a
 
 # Populate apt lists.
-prefix="${output_dir}/var/lib/apt/lists/$( \
+prefix="${output_dir}/var/lib/apt/lists/$(
 	echo "${mirror}/dists/${distribution}" |
-	sed -e 's|^https\?://||' -e 's|/|_|g')"
+		sed -e 's|^https\?://||' -e 's|/|_|g'
+)"
 cp -p "${release}" "${prefix}_InRelease"
 tail -n +4 "${release}" |
-	sed '/^-----BEGIN PGP SIGNATURE-----$/Q' > "${prefix}_Release"
+	sed '/^-----BEGIN PGP SIGNATURE-----$/Q' >"${prefix}_Release"
 truncate -s -1 "${prefix}_Release"
 sed -n '/^-----BEGIN PGP SIGNATURE-----$/,/^-----END PGP SIGNATURE-----$/p' \
-	"${release}" > "${prefix}_Release.gpg"
+	"${release}" >"${prefix}_Release.gpg"
 file="main/binary-${architecture}/Packages"
 get_release_file "${mirror}" "${distribution}" "${release}" "${file}" \
 	"${cache_dir}" "${prefix}_$(echo "${file}" | sed 's|/|_|g')"
 
-echo "# UNCONFIGURED FSTAB FOR BASE SYSTEM" > "${output_dir}/etc/fstab"
+echo "# UNCONFIGURED FSTAB FOR BASE SYSTEM" >"${output_dir}/etc/fstab"
 
 # Clean up.
 rm -rf "${output_dir}/cache" "${temp_dir}"
