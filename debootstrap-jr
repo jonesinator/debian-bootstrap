@@ -602,6 +602,7 @@ touch "${output_dir}"/usr/lib/terminfo
 touch "${output_dir}"/usr/libexec
 touch "${output_dir}"/usr/share
 touch "${output_dir}"/usr/share/bash-completion
+touch "${output_dir}"/usr/share/bug
 touch "${output_dir}"/usr/share/doc
 touch "${output_dir}"/usr/share/lintian
 touch "${output_dir}"/usr/share/locale
