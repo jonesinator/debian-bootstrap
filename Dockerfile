@@ -26,7 +26,7 @@ RUN apt-get update \
  && rm --recursive --force /var/lib/apt/lists/*
 RUN git clone https://salsa.debian.org/installer-team/debootstrap.git \
  && cd debootstrap \
- && git checkout cef6d5d69a4ceac80db6fe3bbefc96ebc362087f
+ && git checkout 8457f34b4c30a09e7acfabf5ab153146cc3470ed
 ENTRYPOINT ["/debootstrap/debootstrap"]
 
 FROM docker.io/library/debian:bookworm-slim as lint
