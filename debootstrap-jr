@@ -378,9 +378,11 @@ all_packages="$(cat "${temp_dir}")"
 
 # Determine the "required" packages.
 exclude_packages="usrmerge"
-additional_packages="usr-is-merged"
-if [ "${distribution}" = "trixie" ] && [ "${variant}" = "buildd" ]; then
-	additional_packages="mawk|${additional_packages}"
+additional_packages=""
+if [ "${distribution}" = "bookworm" ]; then
+	additional_packages="usr-is-merged"
+elif [ "${distribution}" = "trixie" ] && [ "${variant}" = "buildd" ]; then
+	additional_packages="mawk"
 	initial_required_packages="$(filter_packages \
 		"${all_packages}" "Essential" "^yes$")"
 else
