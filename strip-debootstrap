@@ -45,6 +45,7 @@ rm -rfv "${1}"/etc/apparmor.d/local/sbin.dhclient
 
 # Ensure some timestamps are updated.
 touch "${1}"/usr/share
+touch "${1}"/usr/share/bug
 touch "${1}"/usr/share/doc
 touch "${1}"/usr/share/locale
 touch "${1}"/usr/share/man
